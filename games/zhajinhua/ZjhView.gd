@@ -10,6 +10,9 @@ var names = []
 var bar: HBoxContainer
 var _sig = ""
 var picking = false
+var _deal_ms = -100000
+var _round_seen = -1
+var _reveal = {}
 
 
 func _ready() -> void:
@@ -28,6 +31,19 @@ func _layout() -> void:
 
 
 func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
+	var now = Time.get_ticks_msec()
+	var rd = int(s.get("round", 0))
+	if rd != _round_seen:
+		_round_seen = rd
+		_deal_ms = now
+		_reveal = {}
+		_kick(1200)
+	for p in s.get("players", []):
+		var key = int(p["seat"])
+		var has = not p.get("cards", []).is_empty()
+		if has and not _reveal.has(key):
+			_reveal[key] = now
+			_kick(500)
 	st = s
 	my_seat = seat
 	names = seat_names
@@ -175,11 +191,44 @@ func _draw() -> void:
 		var x0 = pos.x - (3 * sw + 8) / 2.0
 		for j in 3:
 			var r = Rect2(x0 + j * (sw + 4), cy, sw, sh)
+			var de = _ease((Time.get_ticks_msec() - _deal_ms - (j * n + k) * 45) / 260.0)
+			if de < 1.0:
+				draw_set_transform((c - r.get_center()) * (1.0 - de))
+			elif j < cards.size():
+				_flip_begin(r, int(_reveal.get(s, -100000)) + j * 90)
 			if j < cards.size():
 				_card(font, r, int(cards[j]))
 			else:
 				_back(r)
+			draw_set_transform(Vector2.ZERO)
 		var hn = str(p.get("hand", ""))
 		if hn != "":
 			var hy = cy - 6 if k == 0 else cy + sh + 18
 			draw_string(font, Vector2(pos.x - 90, hy), hn, HORIZONTAL_ALIGNMENT_CENTER, 180, 18, Color("#ffe066"))
+
+
+# ---------------------------------------------------------------- 动画小工具
+
+var _anim_until = 0
+
+
+func _process(_d: float) -> void:
+	if Time.get_ticks_msec() < _anim_until:
+		queue_redraw()
+
+
+func _kick(ms: int) -> void:
+	_anim_until = maxi(_anim_until, Time.get_ticks_msec() + ms + 60)
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)
+
+
+## 翻牌：从中间横向展开（start 是开始的时间，可以是将来的时间，用来错开）
+func _flip_begin(r: Rect2, start: int) -> void:
+	var e = _ease((Time.get_ticks_msec() - start) / 220.0)
+	var sx = maxf(e, 0.02)
+	var cx = r.get_center().x
+	draw_set_transform(Vector2(cx * (1.0 - sx), 0), 0.0, Vector2(sx, 1.0))

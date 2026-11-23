@@ -12,6 +12,8 @@ var flip = false
 var _o = Vector2.ZERO
 var _c = 50.0
 var resign_btn: Button
+var _last_key = ""
+var _move_ms = -100000
 
 
 func _ready() -> void:
@@ -43,6 +45,11 @@ func _my_side() -> int:
 
 
 func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
+	var lk = str(s.get("last", []))
+	if lk != _last_key:
+		_last_key = lk
+		_move_ms = Time.get_ticks_msec()
+		_kick(260)
 	st = s
 	my_seat = seat
 	names = seat_names
@@ -127,6 +134,8 @@ func _draw() -> void:
 		if v == 0:
 			continue
 		var p2 = _pt(i)
+		if last.size() == 2 and int(last[1]) == i:
+			p2 = _pt(int(last[0])).lerp(p2, _ease((Time.get_ticks_msec() - _move_ms) / 240.0))
 		var r = _c * 0.44
 		draw_circle(p2 + Vector2(2, 3), r, Color(0, 0, 0, 0.3))
 		draw_circle(p2, r, Color("#f7e7c4"))
@@ -201,3 +210,22 @@ func _gui_input(event: InputEvent) -> void:
 		sel = -1
 		dests = []
 	queue_redraw()
+
+
+# ---------------------------------------------------------------- 动画小工具
+
+var _anim_until = 0
+
+
+func _process(_d: float) -> void:
+	if Time.get_ticks_msec() < _anim_until:
+		queue_redraw()
+
+
+func _kick(ms: int) -> void:
+	_anim_until = maxi(_anim_until, Time.get_ticks_msec() + ms + 60)
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)

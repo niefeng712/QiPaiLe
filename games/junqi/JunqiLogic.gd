@@ -104,6 +104,11 @@ func current_seat() -> int:
 	return turn
 
 
+## 布阵阶段不计时（布阵可以慢慢摆）
+func no_timer() -> bool:
+	return phase == "deploy"
+
+
 func bot_delay() -> float:
 	return 0.2 if phase == "deploy" else 0.7
 

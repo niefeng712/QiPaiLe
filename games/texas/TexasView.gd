@@ -9,6 +9,9 @@ var my_seat = -1
 var names = []
 var bar: HBoxContainer
 var _sig = ""
+var _board_ms = {}
+var _deal_ms = -100000
+var _round_seen = -1
 
 
 func _ready() -> void:
@@ -27,6 +30,19 @@ func _layout() -> void:
 
 
 func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
+	var now = Time.get_ticks_msec()
+	var ob = st.get("board", []).size()
+	var nb = s.get("board", []).size()
+	if nb < ob:
+		ob = 0
+	for i in range(ob, nb):
+		_board_ms[i] = now + (i - ob) * 120
+		_kick(260 + (nb - ob) * 120)
+	var rd = int(s.get("round", 0))
+	if rd != _round_seen:
+		_round_seen = rd
+		_deal_ms = now
+		_kick(900)
 	st = s
 	my_seat = seat
 	names = seat_names
@@ -133,7 +149,9 @@ func _draw() -> void:
 	for i in 5:
 		var r = Rect2(bx + i * (cw + 8), c.y - ch / 2.0 - 10, cw, ch)
 		if i < board.size():
+			_flip_begin(r, int(_board_ms.get(i, -100000)))
 			_card(font, r, int(board[i]), best.has(board[i]))
+			draw_set_transform(Vector2.ZERO)
 		else:
 			draw_rect(r, Color(1, 1, 1, 0.12))
 	draw_string(font, Vector2(c.x - 150, c.y + ch / 2.0 + 22), "底池 %d" % int(st.get("pot", 0)), HORIZONTAL_ALIGNMENT_CENTER, 300, 24, Color("#ffe066"))
@@ -182,10 +200,12 @@ func _draw() -> void:
 			var r2 = Rect2(pos.x - sw - 3 + j * (sw + 6), cy, sw, sh)
 			if bool(p["folded"]):
 				continue
+			_flip_begin(r2, _deal_ms + k * 60 + j * 120)
 			if j < cards.size():
 				_card(font, r2, int(cards[j]), best.has(cards[j]) and s == my_seat)
 			else:
 				_back(r2)
+			draw_set_transform(Vector2.ZERO)
 	if bool(st.get("over", false)):
 		var lines = []
 		for r3 in st.get("results", []):
@@ -195,3 +215,30 @@ func _draw() -> void:
 		for l in lines:
 			draw_string(font, Vector2(c.x - 220, y), l, HORIZONTAL_ALIGNMENT_CENTER, 440, 18, Color.WHITE)
 			y += 24
+
+
+# ---------------------------------------------------------------- 动画小工具
+
+var _anim_until = 0
+
+
+func _process(_d: float) -> void:
+	if Time.get_ticks_msec() < _anim_until:
+		queue_redraw()
+
+
+func _kick(ms: int) -> void:
+	_anim_until = maxi(_anim_until, Time.get_ticks_msec() + ms + 60)
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)
+
+
+## 翻牌：从中间横向展开（start 是开始的时间，可以是将来的时间，用来错开）
+func _flip_begin(r: Rect2, start: int) -> void:
+	var e = _ease((Time.get_ticks_msec() - start) / 220.0)
+	var sx = maxf(e, 0.02)
+	var cx = r.get_center().x
+	draw_set_transform(Vector2(cx * (1.0 - sx), 0), 0.0, Vector2(sx, 1.0))

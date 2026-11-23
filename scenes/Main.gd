@@ -5,6 +5,7 @@ const Registry = preload("res://core/GameRegistry.gd")
 const SETTINGS_PATH = "user://settings.cfg"
 const STATS_PATH = "user://stats.cfg"
 const GameCard = preload("res://ui/GameCard.gd")
+const FxLayer = preload("res://ui/FxLayer.gd")
 
 var selected_game = "gomoku"
 var current_screen = ""
@@ -50,6 +51,9 @@ var timer_label: Label
 var _turn_ms = 0
 
 var sfx_toggle: CheckButton
+var music_toggle: CheckButton
+var fx = null
+var _banner_last = 0
 var chat_popup: PopupPanel
 var chat_edit: LineEdit
 var chat_box: VBoxContainer
@@ -90,6 +94,8 @@ func _ready() -> void:
 	_build_game()
 	_build_toast()
 	_build_chat()
+	fx = FxLayer.new()
+	add_child(fx)
 	Net.chat_received.connect(_on_chat)
 	Net.rooms_updated.connect(_on_rooms_updated)
 	Net.room_changed.connect(_on_room_changed)
@@ -189,10 +195,18 @@ func _clear(box: Node) -> void:
 
 
 func _show(screen: String) -> void:
+	var changed = current_screen != screen
 	current_screen = screen
 	hall_root.visible = screen == "hall"
 	room_root.visible = screen == "room"
 	game_root.visible = screen == "game"
+	Music.play_track("game" if screen == "game" else "hall")
+	if changed:
+		var root = hall_root if screen == "hall" else (room_root if screen == "room" else game_root)
+		root.modulate.a = 0.0
+		create_tween().tween_property(root, "modulate:a", 1.0, 0.25)
+		if screen == "hall":
+			_animate_cards()
 	if screen == "hall":
 		Net.start_discovery()
 		_refresh_ip_label()
@@ -204,6 +218,8 @@ func _show(screen: String) -> void:
 func show_toast(text: String) -> void:
 	toast_label.text = text
 	toast_panel.visible = true
+	toast_panel.modulate.a = 0.0
+	create_tween().tween_property(toast_panel, "modulate:a", 1.0, 0.18)
 	_toast_token += 1
 	var t = _toast_token
 	await get_tree().create_timer(3.0).timeout
@@ -239,7 +255,7 @@ func _build_hall() -> void:
 	title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.5))
 	title.add_theme_constant_override("shadow_offset_y", 3)
 	tv.add_child(title)
-	var subt = _label("单机 + 同WiFi联机 · %d 款游戏" % Registry.ready_count(), 17)
+	var subt = _label("单机 + 同WiFi联机 · %d 款游戏 · v%s" % [Registry.ready_count(), str(ProjectSettings.get_setting("application/config/version", "1.0.0"))], 17)
 	subt.modulate = Color(1, 1, 1, 0.8)
 	tv.add_child(subt)
 	var sp = Control.new()
@@ -256,6 +272,11 @@ func _build_hall() -> void:
 	sfx_toggle.button_pressed = true
 	sfx_toggle.toggled.connect(_on_sfx_toggled)
 	top.add_child(sfx_toggle)
+	music_toggle = CheckButton.new()
+	music_toggle.text = "音乐"
+	music_toggle.button_pressed = true
+	music_toggle.toggled.connect(_on_music_toggled)
+	top.add_child(music_toggle)
 	top.add_child(_label("昵称", 20))
 	name_edit = LineEdit.new()
 	name_edit.custom_minimum_size = Vector2(180, 48)
@@ -392,6 +413,20 @@ func _apply_filter(cat: String) -> void:
 		var card = game_buttons[gid]
 		card.visible = cat == "全部" or str(card.cat) == cat
 	hall_scroll.scroll_vertical = 0
+	_animate_cards()
+
+
+func _animate_cards() -> void:
+	var i = 0
+	for gid in game_buttons:
+		var card = game_buttons[gid]
+		if not card.visible:
+			continue
+		card.modulate.a = 0.0
+		var tw = create_tween()
+		tw.tween_interval(0.025 * i)
+		tw.tween_property(card, "modulate:a", 1.0, 0.22)
+		i += 1
 
 
 # ---------------------------------------------------------------- 战绩
@@ -591,6 +626,7 @@ func _load_settings() -> void:
 	if cf.load(SETTINGS_PATH) == OK:
 		nm = str(cf.get_value("player", "name", ""))
 		Sfx.enabled = bool(cf.get_value("player", "sfx", true))
+		Music.set_enabled(bool(cf.get_value("player", "music", true)))
 		var g = str(cf.get_value("player", "game", "gomoku"))
 		var info = Registry.get_game(g)
 		if not info.is_empty() and bool(info.get("ready", false)):
@@ -600,6 +636,7 @@ func _load_settings() -> void:
 	name_edit.text = nm
 	Net.player_name = nm
 	sfx_toggle.set_pressed_no_signal(Sfx.enabled)
+	music_toggle.set_pressed_no_signal(Music.enabled)
 
 
 func _save_settings() -> void:
@@ -609,6 +646,7 @@ func _save_settings() -> void:
 	cf.set_value("player", "name", Net.player_name)
 	cf.set_value("player", "game", selected_game)
 	cf.set_value("player", "sfx", Sfx.enabled)
+	cf.set_value("player", "music", Music.enabled)
 	cf.save(SETTINGS_PATH)
 
 
@@ -871,6 +909,11 @@ func _on_node_added(n: Node) -> void:
 		n.pressed.connect(func(): Sfx.play("click"))
 
 
+func _on_music_toggled(on: bool) -> void:
+	Music.set_enabled(on)
+	_save_settings()
+
+
 func _on_sfx_toggled(on: bool) -> void:
 	Sfx.enabled = on
 	_save_settings()
@@ -890,23 +933,43 @@ func _play_state_sound(st: Dictionary) -> void:
 		_last_cur = cur
 		_last_event = ev
 		Sfx.play("turn" if cur == me and me >= 0 else "start")
+		if cur == me and me >= 0:
+			_turn_banner()
 		return
 	if over and not _last_over:
 		var w = st.get("winners", [])
 		if me >= 0 and w.has(me):
 			Sfx.play("win")
+			fx.celebrate(true, "胜利！")
 		elif me >= 0 and not w.is_empty():
 			Sfx.play("lose")
+			fx.celebrate(false, "再接再厉")
 		else:
 			Sfx.play("end")
+			fx.celebrate(false, "游戏结束")
 		_on_game_finished(st)
 	elif not over and cur == me and me >= 0 and _last_cur != me:
 		Sfx.play("turn")
+		_turn_banner()
 	elif ev != _last_event:
 		Sfx.play("card")
 	_last_over = over
 	_last_cur = cur
 	_last_event = ev
+
+
+func _turn_banner() -> void:
+	var now = Time.get_ticks_msec()
+	if now - _banner_last < 2500:
+		return
+	_banner_last = now
+	var seats = Net.room.get("seats", [])
+	var humans = 0
+	for sd in seats:
+		if str(sd["kind"]) != "empty":
+			humans += 1
+	if humans >= 2:
+		fx.banner("轮到你了！")
 
 
 func _build_chat() -> void:
@@ -984,16 +1047,25 @@ func _on_chat(_seat: int, sender: String, text: String) -> void:
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	p.add_child(l)
 	chat_box.add_child(p)
+	p.modulate.a = 0.0
+	create_tween().tween_property(p, "modulate:a", 1.0, 0.2)
 	while chat_box.get_child_count() > 5:
 		var old = chat_box.get_child(0)
 		chat_box.remove_child(old)
 		old.queue_free()
-	await get_tree().create_timer(6.0).timeout
+	await get_tree().create_timer(5.6, true, false, true).timeout
 	if is_instance_valid(p):
-		p.queue_free()
+		var tw = create_tween()
+		tw.tween_property(p, "modulate:a", 0.0, 0.4)
+		tw.tween_callback(p.queue_free)
 
 
 func _on_left_room(reason: String) -> void:
+	if game_view != null:
+		game_view.queue_free()
+		game_view = null
+		game_view_id = ""
+	_last_round = -1
 	_show("hall")
 	if reason != "":
 		show_toast(reason)
@@ -1029,37 +1101,70 @@ func _build_toast() -> void:
 	add_child(toast_panel)
 
 
+func _wait_real(sec: float) -> void:
+	await get_tree().create_timer(sec, true, false, true).timeout
+
+
+## 自动化自检（GitHub Actions 里运行）：把每款游戏用"托管"从头打到尾，检查界面、动画、音效、聊天、战绩都不报错
 func _run_selftest() -> void:
 	print("SELFTEST start")
-	await get_tree().create_timer(0.5).timeout
+	await _wait_real(0.5)
+	var mt = 0.0
+	while not Music.loaded and mt < 60.0:
+		await _wait_real(0.25)
+		mt += 0.25
+	if not Music.loaded:
+		printerr("SELFTEST FAIL: background music not generated")
+		get_tree().quit(1)
+		return
+	print("SELFTEST music ok (%.1fs)" % mt)
+	Engine.time_scale = 30.0
 	for g in Registry.GAMES:
 		if not bool(g.get("ready", false)):
 			continue
 		var gid = str(g["id"])
-		print("SELFTEST game: ", gid)
-		if not Net.host_room(gid, Registry.default_rules(gid), true):
+		var rules = Registry.default_rules(gid)
+		if gid == "xiangqi":
+			rules["level"] = "easy"
+		if not Net.host_room(gid, rules, true):
 			printerr("SELFTEST FAIL: host_room offline ", gid)
 			get_tree().quit(1)
 			return
 		_refresh_room()
 		Net.start_game()
-		await get_tree().create_timer(3.0).timeout
+		await _wait_real(0.05)
+		Net.set_auto(true)
+		var t0 = Time.get_ticks_msec()
+		while not bool(Net.state.get("over", false)) and Time.get_ticks_msec() - t0 < 12000:
+			await _wait_real(0.05)
 		if Net.state.is_empty() or game_view == null:
 			printerr("SELFTEST FAIL: no state for ", gid)
 			get_tree().quit(1)
 			return
-		print("SELFTEST status: ", game_status.text)
+		var done = bool(Net.state.get("over", false))
+		print("SELFTEST game %s: %s in %.1fs ｜ %s" % [gid, "finished" if done else "still running (time cap)", (Time.get_ticks_msec() - t0) / 1000.0, game_status.text.left(70)])
+		if done:
+			var r1 = int(Net.state.get("round", 0))
+			Net.start_game()
+			await _wait_real(0.05)
+			Net.set_auto(true)
+			await _wait_real(0.4)
+			if int(Net.state.get("round", 0)) != r1 + 1:
+				printerr("SELFTEST FAIL: next round did not start for ", gid)
+				get_tree().quit(1)
+				return
 		Net.send_chat("再来一局！")
-		await get_tree().create_timer(0.2).timeout
+		await _wait_real(0.1)
 		if chat_box.get_child_count() == 0:
 			printerr("SELFTEST FAIL: chat message not shown for ", gid)
 			get_tree().quit(1)
 			return
 		Net.leave_room()
-		await get_tree().create_timer(0.3).timeout
+		await _wait_real(0.1)
+	Engine.time_scale = 1.0
 	if Net.host_room("ludo", Registry.default_rules("ludo"), false):
 		_refresh_room()
-		await get_tree().create_timer(1.5).timeout
+		await _wait_real(1.0)
 		print("SELFTEST lan host ok, ips: ", Net.local_ipv4())
 		Net.leave_room()
 	for snd in ["click", "card", "turn", "win", "lose", "chat", "tick", "start", "end"]:
@@ -1069,13 +1174,16 @@ func _run_selftest() -> void:
 			return
 		Sfx.play(snd)
 	print("SELFTEST sounds ok")
-	_on_game_finished({"game_id": "gomoku", "winners": []})
+	fx.celebrate(true, "胜利！")
+	fx.banner("轮到你了！")
+	await _wait_real(0.5)
 	_open_stats()
-	await get_tree().create_timer(0.2).timeout
+	await _wait_real(0.2)
 	stats_popup.hide()
 	for c in Registry.CATS:
 		_apply_filter(str(c))
 	_apply_filter("全部")
+	await _wait_real(0.5)
 	print("SELFTEST hall ok, cards: ", game_buttons.size())
 	print("SELFTEST OK")
 	get_tree().quit(0)

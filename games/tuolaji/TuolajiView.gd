@@ -15,6 +15,7 @@ var bar: HBoxContainer
 var _bar_sig = ""
 var _cw = 60.0
 var _ch = 84.0
+var _seen_plays = {}
 
 
 func _ready() -> void:
@@ -49,6 +50,20 @@ func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
 	hand = s.get("my_hand", [])
 	if hand.size() != old_n:
 		selected.clear()
+	var now = Time.get_ticks_msec()
+	var rd = int(s.get("round", 0))
+	if rd != _round_seen or hand.size() > old_n + 2:
+		if rd != _round_seen:
+			_seen_plays = {}
+		_round_seen = rd
+		_deal_ms = now
+		_kick(260 + hand.size() * 22)
+	for p in s.get("trick", []):
+		var key = str(p)
+		if not _seen_plays.has(key):
+			_seen_plays[key] = true
+			_tfly[int(p[0])] = now
+			_kick(320)
 	for k in selected.keys():
 		if not hand.has(k):
 			selected.erase(k)
@@ -251,7 +266,10 @@ func _draw() -> void:
 			pos = Vector2((size.x - tw) / 2.0, 145.0)
 		else:
 			pos = Vector2(290.0, mid_y - sh / 2.0)
+		if not faded:
+			_fly_on(s, [Vector2(0, 1), Vector2(1, 0), Vector2(0, -1), Vector2(-1, 0)][rel])
 		_draw_row(font, cards, pos, sw, sh)
+		draw_set_transform(Vector2.ZERO)
 		if faded:
 			draw_rect(Rect2(pos, Vector2(tw, sh)), Color(0.12, 0.37, 0.23, 0.45))
 		if s == best:
@@ -295,7 +313,9 @@ func _draw() -> void:
 		var c = int(hand[i])
 		var y = y0 - (22.0 if selected.has(c) else 0.0)
 		var rr = Rect2(x0 + i * spacing, y, _cw, _ch)
+		draw_set_transform(Vector2(0, _deal_off(i)))
 		_draw_card(font, rr, c)
+		draw_set_transform(Vector2.ZERO)
 		_card_rects.append([c, rr])
 
 
@@ -421,3 +441,39 @@ func _gui_input(event: InputEvent) -> void:
 			_refresh_buttons()
 			queue_redraw()
 			return
+
+
+# ---------------------------------------------------------------- 动画小工具
+
+var _anim_until = 0
+
+
+func _process(_d: float) -> void:
+	if Time.get_ticks_msec() < _anim_until:
+		queue_redraw()
+
+
+func _kick(ms: int) -> void:
+	_anim_until = maxi(_anim_until, Time.get_ticks_msec() + ms + 60)
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)
+
+
+var _tfly = {}
+var _deal_ms = -100000
+var _round_seen = -1
+
+
+## 出牌飞入：从出牌人那一边飞到桌上
+func _fly_on(seat: int, dir: Vector2) -> void:
+	var e = _ease((Time.get_ticks_msec() - int(_tfly.get(seat, -100000))) / 280.0)
+	draw_set_transform(dir * 170.0 * (1.0 - e))
+
+
+## 发牌：手牌一张一张从下面升上来
+func _deal_off(i: int) -> float:
+	var e = _ease((Time.get_ticks_msec() - _deal_ms - i * 22) / 240.0)
+	return (1.0 - e) * 260.0

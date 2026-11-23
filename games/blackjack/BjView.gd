@@ -8,6 +8,8 @@ var my_seat = -1
 var names = []
 var bar: HBoxContainer
 var _sig = ""
+var _seen = {}
+var _card_ms = {}
 
 
 func _ready() -> void:
@@ -26,6 +28,27 @@ func _layout() -> void:
 
 
 func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
+	var now = Time.get_ticks_msec()
+	var order = 0
+	var d = s.get("dealer", [])
+	for i in d.size():
+		var key = "d:%d" % i
+		if int(_seen.get(key, -99)) != int(d[i]):
+			_seen[key] = int(d[i])
+			_card_ms[key] = now + order * 110
+			order += 1
+	for p in s.get("players", []):
+		var hs = p.get("hands", [])
+		for hk in hs.size():
+			var cards = hs[hk]["cards"]
+			for i in cards.size():
+				var key2 = "%d:%d:%d" % [int(p["seat"]), hk, i]
+				if int(_seen.get(key2, -99)) != int(cards[i]):
+					_seen[key2] = int(cards[i])
+					_card_ms[key2] = now + order * 110
+					order += 1
+	if order > 0:
+		_kick(260 + order * 110)
 	st = s
 	my_seat = seat
 	names = seat_names
@@ -114,7 +137,10 @@ func _draw() -> void:
 	var dx = size.x / 2.0 - (d.size() * (cw * 0.7) + cw * 0.3) / 2.0
 	draw_string(font, Vector2(0, 30), "庄家", HORIZONTAL_ALIGNMENT_CENTER, size.x, 22, Color.WHITE)
 	for i in d.size():
-		_card(font, Rect2(dx + i * cw * 0.7, 42, cw, ch), int(d[i]))
+		var dr = Rect2(dx + i * cw * 0.7, 42, cw, ch)
+		_flip_begin(dr, int(_card_ms.get("d:%d" % i, -100000)))
+		_card(font, dr, int(d[i]))
+		draw_set_transform(Vector2.ZERO)
 	if not d.is_empty():
 		var dt = int(st.get("dealer_total", 0))
 		var txt = "%d 点" % dt if bool(st.get("over", false)) else "明牌 %d 点" % dt
@@ -145,10 +171,15 @@ func _draw() -> void:
 		var hy = box.position.y + 54.0
 		var scw = minf(cw * 0.8, (box.size.y - 60.0) / maxf(hs.size(), 1.0) / 1.4 - 22.0)
 		scw = maxf(scw, 24.0)
+		var hk = -1
 		for h in hs:
+			hk += 1
 			var cards = h["cards"]
 			for i in cards.size():
-				_card(font, Rect2(box.position.x + 8 + i * scw * 0.62, hy, scw, scw * 1.4), int(cards[i]))
+				var cr = Rect2(box.position.x + 8 + i * scw * 0.62, hy, scw, scw * 1.4)
+				_flip_begin(cr, int(_card_ms.get("%d:%d:%d" % [s, hk, i], -100000)))
+				_card(font, cr, int(cards[i]))
+				draw_set_transform(Vector2.ZERO)
 			var tt = "%s%d 点  注 %d" % ["软" if bool(h["soft"]) and int(h["total"]) < 21 else "", int(h["total"]), int(h["bet"])]
 			if bool(h["doubled"]):
 				tt += " 加倍"
@@ -164,3 +195,30 @@ func _draw() -> void:
 				draw_rect(Rect2(box.position.x + 4, hy - 4, bw - 8, scw * 1.4 + 26), Color.WHITE, false, 2.0)
 			draw_string(font, Vector2(box.position.x + 8, hy + scw * 1.4 + 18), tt, HORIZONTAL_ALIGNMENT_LEFT, bw - 16, 15, col)
 			hy += scw * 1.4 + 28.0
+
+
+# ---------------------------------------------------------------- 动画小工具
+
+var _anim_until = 0
+
+
+func _process(_d: float) -> void:
+	if Time.get_ticks_msec() < _anim_until:
+		queue_redraw()
+
+
+func _kick(ms: int) -> void:
+	_anim_until = maxi(_anim_until, Time.get_ticks_msec() + ms + 60)
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)
+
+
+## 翻牌：从中间横向展开（start 是开始的时间，可以是将来的时间，用来错开）
+func _flip_begin(r: Rect2, start: int) -> void:
+	var e = _ease((Time.get_ticks_msec() - start) / 220.0)
+	var sx = maxf(e, 0.02)
+	var cx = r.get_center().x
+	draw_set_transform(Vector2(cx * (1.0 - sx), 0), 0.0, Vector2(sx, 1.0))

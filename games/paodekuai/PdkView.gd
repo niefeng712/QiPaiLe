@@ -15,6 +15,7 @@ var _hint_i = 0
 var _hint_key = ""
 var _cw = 60.0
 var _ch = 84.0
+var _tsig = []
 
 
 func _ready() -> void:
@@ -47,6 +48,22 @@ func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
 	hand = s.get("my_hand", [])
 	if hand.size() != old:
 		selected.clear()
+	var now = Time.get_ticks_msec()
+	var tb = s.get("table", [])
+	for i in tb.size():
+		var sig = str(tb[i])
+		while _tsig.size() <= i:
+			_tsig.append("")
+		if sig != _tsig[i]:
+			_tsig[i] = sig
+			if str(tb[i].get("kind", "")) == "play":
+				_tfly[i] = now
+				_kick(320)
+	var rd = int(s.get("round", 0))
+	if rd != _round_seen:
+		_round_seen = rd
+		_deal_ms = now
+		_kick(260 + hand.size() * 22)
 	_refresh()
 	queue_redraw()
 
@@ -171,8 +188,11 @@ func _draw() -> void:
 	var sh = _ch * 0.7
 	_box(font, left, Vector2(12, 12), cur, counts)
 	_box(font, right, Vector2(size.x - 232, 12), cur, counts)
+	_fly_on(left, Vector2(-1, 0))
 	_tcards(font, table[left], Vector2(24, 166), false, sw, sh)
+	_fly_on(right, Vector2(1, 0))
 	_tcards(font, table[right], Vector2(size.x - 24, 166), true, sw, sh)
+	draw_set_transform(Vector2.ZERO)
 	if reveal.size() == 3:
 		_row(font, reveal[left], Vector2(24, 180 + sh), sw * 0.8, sh * 0.8, false)
 		_row(font, reveal[right], Vector2(size.x - 24, 180 + sh), sw * 0.8, sh * 0.8, true)
@@ -180,7 +200,9 @@ func _draw() -> void:
 	var mt = table[me]
 	if str(mt.get("kind", "")) == "play":
 		var w = sw * 0.62 * (mt["cards"].size() - 1) + sw
+		_fly_on(me, Vector2(0, 1))
 		_tcards(font, mt, Vector2((size.x - w) / 2.0, my_y), false, sw, sh)
+		draw_set_transform(Vector2.ZERO)
 	elif str(mt.get("kind", "")) == "pass":
 		draw_string(font, Vector2(0, my_y + sh * 0.6), "要不起", HORIZONTAL_ALIGNMENT_CENTER, size.x, 30, Color("#ffe066"))
 	draw_string(font, Vector2(16, size.y - _ch - 30), "%s  %d张  总分%d" % [_nm(me), hand.size(), _score(me)], HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color("#ffe066") if cur == me else Color.WHITE)
@@ -192,7 +214,9 @@ func _draw() -> void:
 	for i in n:
 		var c = int(hand[i])
 		var r = Rect2(x0 + i * sp, size.y - _ch - 8 - (22.0 if selected.has(c) else 0.0), _cw, _ch)
+		draw_set_transform(Vector2(0, _deal_off(i)))
 		_card(font, r, c)
+		draw_set_transform(Vector2.ZERO)
 		_rects.append([c, r])
 
 
@@ -256,3 +280,39 @@ func _gui_input(event: InputEvent) -> void:
 				selected[c] = true
 			queue_redraw()
 			return
+
+
+# ---------------------------------------------------------------- 动画小工具
+
+var _anim_until = 0
+
+
+func _process(_d: float) -> void:
+	if Time.get_ticks_msec() < _anim_until:
+		queue_redraw()
+
+
+func _kick(ms: int) -> void:
+	_anim_until = maxi(_anim_until, Time.get_ticks_msec() + ms + 60)
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)
+
+
+var _tfly = {}
+var _deal_ms = -100000
+var _round_seen = -1
+
+
+## 出牌飞入：从出牌人那一边飞到桌上
+func _fly_on(seat: int, dir: Vector2) -> void:
+	var e = _ease((Time.get_ticks_msec() - int(_tfly.get(seat, -100000))) / 280.0)
+	draw_set_transform(dir * 170.0 * (1.0 - e))
+
+
+## 发牌：手牌一张一张从下面升上来
+func _deal_off(i: int) -> float:
+	var e = _ease((Time.get_ticks_msec() - _deal_ms - i * 22) / 240.0)
+	return (1.0 - e) * 260.0

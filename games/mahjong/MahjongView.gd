@@ -16,6 +16,9 @@ var bar: HBoxContainer
 var _bar_sig = ""
 var _tw = 48.0
 var _th = 66.0
+var _drawn_ms = -100000
+var _disc_ms = -100000
+var _last_disc = -1
 
 
 func _ready() -> void:
@@ -53,7 +56,17 @@ func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
 	my_seat = seat
 	names = seat_names
 	hand = s.get("my_hand", [])
-	drawn = int(s.get("drawn", -1))
+	var nd = int(s.get("drawn", -1))
+	var now = Time.get_ticks_msec()
+	if nd >= 0 and nd != drawn:
+		_drawn_ms = now
+		_kick(260)
+	drawn = nd
+	var lt = int(s.get("last_discard", {}).get("tile", -1))
+	if lt != _last_disc:
+		_last_disc = lt
+		_disc_ms = now
+		_kick(300)
 	var all = hand.duplicate()
 	if drawn >= 0:
 		all.append(drawn)
@@ -345,7 +358,12 @@ func _draw_river(font: Font, ids: Array, pos: Vector2, cols: int, w: float, last
 	var h = w * 1.36
 	for i in ids.size():
 		var r = Rect2(pos + Vector2((i % cols) * w, (i / cols) * h), Vector2(w - 1, h - 1))
+		if int(ids[i]) == last_id:
+			var sc = 1.0 + 0.9 * (1.0 - _ease((Time.get_ticks_msec() - _disc_ms) / 280.0))
+			var cc = r.get_center()
+			draw_set_transform(cc * (1.0 - sc), 0.0, Vector2(sc, sc))
 		_draw_tile(font, r, int(ids[i]) / 4, int(ids[i]) == last_id)
+		draw_set_transform(Vector2.ZERO)
 
 
 func _draw() -> void:
@@ -423,7 +441,9 @@ func _draw() -> void:
 		xe += _tw * 0.4
 		var y2 = y0 - (18.0 if selected.has(drawn) else 0.0)
 		var r2 = Rect2(Vector2(xe, y2), Vector2(_tw - 2, _th))
+		draw_set_transform(Vector2(0, -(1.0 - _ease((Time.get_ticks_msec() - _drawn_ms) / 240.0)) * 90.0))
 		_draw_tile(font, r2, drawn / 4)
+		draw_set_transform(Vector2.ZERO)
 		if q >= 0 and M.tsuit(drawn / 4) == q:
 			draw_rect(r2, Color(0, 0, 0, 0.18))
 		if can_pick:
@@ -488,3 +508,22 @@ func _gui_input(event: InputEvent) -> void:
 		_refresh_buttons()
 		queue_redraw()
 		return
+
+
+# ---------------------------------------------------------------- 动画小工具
+
+var _anim_until = 0
+
+
+func _process(_d: float) -> void:
+	if Time.get_ticks_msec() < _anim_until:
+		queue_redraw()
+
+
+func _kick(ms: int) -> void:
+	_anim_until = maxi(_anim_until, Time.get_ticks_msec() + ms + 60)
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)

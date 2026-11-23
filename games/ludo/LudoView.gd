@@ -18,6 +18,9 @@ var _hits = []
 var _origin = Vector2.ZERO
 var _cell = 10.0
 var _panel = Vector2.ZERO
+var _last_ev = ""
+var _roll_ms = -100000
+var _pmove = {}
 
 
 func _ready() -> void:
@@ -75,6 +78,22 @@ func _layout() -> void:
 
 
 func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
+	var now = Time.get_ticks_msec()
+	var old_pos = st.get("pos", [])
+	var ev = str(s.get("event", ""))
+	if ev != _last_ev and ev.find("掷出") >= 0:
+		_roll_ms = now
+		_kick(450)
+	_last_ev = ev
+	var np = s.get("pos", [])
+	if old_pos.size() == np.size():
+		for si in np.size():
+			for k in 4:
+				var a = int(old_pos[si][k])
+				var b = int(np[si][k])
+				if a != b and b >= 0:
+					_pmove["%d,%d" % [si, k]] = [a, now]
+					_kick(320)
 	st = s
 	my_seat = seat
 	names = seat_names
@@ -179,6 +198,9 @@ func _draw_planes() -> void:
 		for k in 4:
 			var p = int(pos[s][k])
 			var pt = _plane_point(s, k, p)
+			var pm = _pmove.get("%d,%d" % [s, k], [])
+			if not pm.is_empty() and Time.get_ticks_msec() - int(pm[1]) < 320:
+				pt = _plane_point(s, k, int(pm[0])).lerp(pt, _ease((Time.get_ticks_msec() - int(pm[1])) / 300.0))
 			var key = "%d,%d" % [int(pt.x), int(pt.y)]
 			if not groups.has(key):
 				groups[key] = []
@@ -217,6 +239,8 @@ func _draw_panel() -> void:
 	draw_rect(dr, Color.WHITE)
 	draw_rect(dr, Color(0, 0, 0), false, 3.0)
 	var dice = int(st.get("dice", 0))
+	if Time.get_ticks_msec() - _roll_ms < 420:
+		dice = 1 + (Time.get_ticks_msec() / 70) % 6
 	if dice > 0:
 		_draw_pips(dr, dice)
 	var y = 290.0
@@ -276,3 +300,22 @@ func _gui_input(event: InputEvent) -> void:
 		if int(h[0]) == my_seat and mv.has(int(h[1])) and mb.position.distance_to(h[2]) <= float(h[3]):
 			Net.send_action({"type": "move", "plane": int(h[1])})
 			return
+
+
+# ---------------------------------------------------------------- 动画小工具
+
+var _anim_until = 0
+
+
+func _process(_d: float) -> void:
+	if Time.get_ticks_msec() < _anim_until:
+		queue_redraw()
+
+
+func _kick(ms: int) -> void:
+	_anim_until = maxi(_anim_until, Time.get_ticks_msec() + ms + 60)
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)

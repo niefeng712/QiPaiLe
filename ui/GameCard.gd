@@ -26,7 +26,23 @@ func setup(g: Dictionary, icon: Array, stat: String) -> void:
 	add_theme_stylebox_override("pressed", _sb(Color(1, 0.85, 0.3, 0.18), Color("#ffd54f"), 3))
 	add_theme_stylebox_override("hover_pressed", _sb(Color(1, 0.85, 0.3, 0.24), Color("#ffd54f"), 3))
 	add_theme_stylebox_override("disabled", _sb(Color(0, 0, 0, 0.18), Color(1, 1, 1, 0.05), 1))
+	mouse_entered.connect(func(): _hover(true))
+	mouse_exited.connect(func(): _hover(false))
+	button_down.connect(func(): _hover(false))
 	queue_redraw()
+
+
+var _tw: Tween
+
+
+func _hover(on: bool) -> void:
+	if not is_ready:
+		return
+	pivot_offset = size / 2.0
+	if _tw != null:
+		_tw.kill()
+	_tw = create_tween()
+	_tw.tween_property(self, "scale", Vector2.ONE * (1.05 if on else 1.0), 0.12)
 
 
 func _sb(bg: Color, border: Color, bw: int) -> StyleBoxFlat:

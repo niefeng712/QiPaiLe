@@ -4,6 +4,8 @@ extends Control
 var st = {}
 var my_seat = -1
 var names = []
+var _last_key = ""
+var _drop_ms = -100000
 
 
 func _ready() -> void:
@@ -12,6 +14,11 @@ func _ready() -> void:
 
 
 func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
+	var lk = str(s.get("last", []))
+	if lk != _last_key:
+		_last_key = lk
+		_drop_ms = Time.get_ticks_msec()
+		_kick(260)
 	st = s
 	my_seat = seat
 	names = seat_names
@@ -75,11 +82,15 @@ func _draw() -> void:
 			if v == -1:
 				continue
 			var pos = o + Vector2(x * c, y * c)
-			draw_circle(pos + Vector2(2, 2), c * 0.43, Color(0, 0, 0, 0.3))
+			var rr = c * 0.43
+			var lm = st.get("last", [])
+			if lm.size() == 2 and int(lm[0]) == x and int(lm[1]) == y:
+				rr *= 1.0 + 0.6 * (1.0 - _ease((Time.get_ticks_msec() - _drop_ms) / 240.0))
+			draw_circle(pos + Vector2(2, 2), rr, Color(0, 0, 0, 0.3))
 			if v == 0:
-				draw_circle(pos, c * 0.43, Color(0.08, 0.08, 0.08))
+				draw_circle(pos, rr, Color(0.08, 0.08, 0.08))
 			else:
-				draw_circle(pos, c * 0.43, Color(0.97, 0.97, 0.94))
+				draw_circle(pos, rr, Color(0.97, 0.97, 0.94))
 	var last = st.get("last", [])
 	if last.size() == 2:
 		draw_circle(o + Vector2(int(last[0]) * c, int(last[1]) * c), c * 0.12, Color("#e74c3c"))
@@ -111,3 +122,22 @@ func _gui_input(event: InputEvent) -> void:
 	if int(st["board"][y * n + x]) != -1:
 		return
 	Net.send_action({"type": "place", "x": x, "y": y})
+
+
+# ---------------------------------------------------------------- 动画小工具
+
+var _anim_until = 0
+
+
+func _process(_d: float) -> void:
+	if Time.get_ticks_msec() < _anim_until:
+		queue_redraw()
+
+
+func _kick(ms: int) -> void:
+	_anim_until = maxi(_anim_until, Time.get_ticks_msec() + ms + 60)
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)

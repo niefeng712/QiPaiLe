@@ -14,6 +14,8 @@ var dests = {}
 var _pos = []
 var _r = 10.0
 var _rot = 0.0
+var _last_key = ""
+var _move_ms = -100000
 
 
 func _ready() -> void:
@@ -62,6 +64,11 @@ func _layout() -> void:
 
 func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
 	var first = st.is_empty()
+	var lk = str(s.get("last_path", []))
+	if lk != _last_key:
+		_last_key = lk
+		_move_ms = Time.get_ticks_msec()
+		_kick(150 * s.get("last_path", []).size())
 	st = s
 	my_seat = seat
 	names = seat_names
@@ -151,9 +158,10 @@ func _draw() -> void:
 			continue
 		var h = _home_of(v)
 		var col2 = COLORS[h] if h >= 0 else Color.GRAY
-		draw_circle(_pos[i] + Vector2(1.5, 2), _r * 0.9, Color(0, 0, 0, 0.35))
-		draw_circle(_pos[i], _r * 0.9, col2)
-		draw_circle(_pos[i] + Vector2(-_r * 0.28, -_r * 0.28), _r * 0.3, Color(1, 1, 1, 0.45))
+		var pp = _piece_pos(i)
+		draw_circle(pp + Vector2(1.5, 2), _r * 0.9, Color(0, 0, 0, 0.35))
+		draw_circle(pp, _r * 0.9, col2)
+		draw_circle(pp + Vector2(-_r * 0.28, -_r * 0.28), _r * 0.3, Color(1, 1, 1, 0.45))
 		if i == sel:
 			draw_arc(_pos[i], _r * 1.05, 0, TAU, 32, Color.WHITE, 3.0)
 	# 能走的位置
@@ -230,3 +238,38 @@ func _gui_input(event: InputEvent) -> void:
 		sel = -1
 		dests = {}
 	queue_redraw()
+
+
+# ---------------------------------------------------------------- 动画小工具
+
+var _anim_until = 0
+
+
+func _process(_d: float) -> void:
+	if Time.get_ticks_msec() < _anim_until:
+		queue_redraw()
+
+
+func _kick(ms: int) -> void:
+	_anim_until = maxi(_anim_until, Time.get_ticks_msec() + ms + 60)
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)
+
+
+## 刚走的棋子沿着路线移动（每一段 150 毫秒）
+func _piece_pos(i: int) -> Vector2:
+	var lp = st.get("last_path", [])
+	var base: Vector2 = _pos[i]
+	if lp.size() < 2 or int(lp[lp.size() - 1]) != i:
+		return base
+	var seg = 150.0
+	var t = (Time.get_ticks_msec() - _move_ms) / seg
+	if t >= lp.size() - 1:
+		return base
+	var k = int(t)
+	var a: Vector2 = _pos[int(lp[k])]
+	var b: Vector2 = _pos[int(lp[k + 1])]
+	return a.lerp(b, _ease(t - k))

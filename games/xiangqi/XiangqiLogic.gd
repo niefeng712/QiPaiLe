@@ -4,7 +4,7 @@ extends RefCounted
 
 const X = preload("res://games/xiangqi/XqRules.gd")
 const MAX_PLIES = 300
-const LEVELS = {"easy": [2, 2500], "normal": [3, 12000], "hard": [4, 40000]}
+const LEVELS = {"easy": [2, 2000], "normal": [3, 7000], "hard": [4, 18000]}
 
 var board = []
 var red_seat = 0

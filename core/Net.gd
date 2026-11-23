@@ -720,6 +720,8 @@ func _schedule_bot() -> void:
 	var tl = _turn_time()
 	if tl <= 0 or str(sd["kind"]) != "human":
 		return
+	if _logic.has_method("no_timer") and _logic.no_timer():
+		return
 	await get_tree().create_timer(float(tl) + 0.3).timeout
 	if token != _bot_token or _logic == null or _logic.current_seat() != seat:
 		return

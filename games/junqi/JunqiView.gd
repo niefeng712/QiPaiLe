@@ -18,6 +18,8 @@ var _pw = 26.0
 var _ph = 18.0
 var bar: HBoxContainer
 var _bar_sig = ""
+var _last_key = ""
+var _move_ms = -100000
 
 
 func _ready() -> void:
@@ -79,6 +81,11 @@ func _layout() -> void:
 
 func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
 	var rebuild = board == null or int(st.get("n", -1)) != int(s.get("n", 4))
+	var lk = str(s.get("last_path", []))
+	if lk != _last_key:
+		_last_key = lk
+		_move_ms = Time.get_ticks_msec()
+		_kick(110 * s.get("last_path", []).size())
 	st = s
 	my_seat = seat
 	names = seat_names
@@ -201,7 +208,7 @@ func _draw() -> void:
 		var o = int(occ[i])
 		if o < 0:
 			continue
-		var p2: Vector2 = _pts[i]
+		var p2: Vector2 = _piece_pos(i)
 		var r2 = Rect2(p2 - Vector2(_pw, _ph) / 2.0, Vector2(_pw, _ph))
 		draw_rect(Rect2(r2.position + Vector2(1.5, 2), r2.size), Color(0, 0, 0, 0.35))
 		draw_rect(r2, COLORS[o])
@@ -307,3 +314,38 @@ func _gui_input(event: InputEvent) -> void:
 		sel = -1
 		dests = {}
 	queue_redraw()
+
+
+# ---------------------------------------------------------------- 动画小工具
+
+var _anim_until = 0
+
+
+func _process(_d: float) -> void:
+	if Time.get_ticks_msec() < _anim_until:
+		queue_redraw()
+
+
+func _kick(ms: int) -> void:
+	_anim_until = maxi(_anim_until, Time.get_ticks_msec() + ms + 60)
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)
+
+
+## 刚走的棋子沿着路线移动（每一段 110 毫秒）
+func _piece_pos(i: int) -> Vector2:
+	var lp = st.get("last_path", [])
+	var base: Vector2 = _pts[i]
+	if lp.size() < 2 or int(lp[lp.size() - 1]) != i:
+		return base
+	var seg = 110.0
+	var t = (Time.get_ticks_msec() - _move_ms) / seg
+	if t >= lp.size() - 1:
+		return base
+	var k = int(t)
+	var a: Vector2 = _pts[int(lp[k])]
+	var b: Vector2 = _pts[int(lp[k + 1])]
+	return a.lerp(b, _ease(t - k))

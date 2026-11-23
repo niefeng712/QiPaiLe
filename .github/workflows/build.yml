@@ -75,9 +75,9 @@ jobs:
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" tests.log; then echo "::error::脚本报错"; exit 1; fi
           grep -q "ALL TESTS PASSED" tests.log
 
-      - name: 界面自检（单机两款游戏 + 局域网建房）
+      - name: 界面自检（每款游戏托管打完一局 + 再来一局 + 聊天 + 音效 + 音乐 + 大厅）
         run: |
-          timeout 300 godot --headless -- --selftest 2>&1 | tee smoke.log || true
+          timeout 900 godot --headless -- --selftest 2>&1 | tee smoke.log || true
           if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" smoke.log; then echo "::error::脚本报错"; exit 1; fi
           grep -q "SELFTEST OK" smoke.log
 

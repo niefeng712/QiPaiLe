@@ -12,6 +12,7 @@ var sel = -1
 var _recv_ms = 0
 var _flash = []
 var _flash_ms = 0
+var _ghost = []
 var _o = Vector2.ZERO
 var _t = 40.0
 var bar: VBoxContainer
@@ -54,6 +55,7 @@ func _process(_d: float) -> void:
 func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
 	var first = st.is_empty()
 	var old_last = st.get("last", [])
+	var old_board = st.get("board", [])
 	st = s
 	my_seat = seat
 	names = seat_names
@@ -62,6 +64,10 @@ func update_state(s: Dictionary, seat: int, seat_names: Array) -> void:
 	if not lst.is_empty() and str(lst) != str(old_last):
 		_flash = lst
 		_flash_ms = Time.get_ticks_msec()
+		_ghost = []
+		for cell in [int(lst[0]), int(lst[lst.size() - 1])]:
+			if cell < old_board.size() and int(old_board[cell]) >= 0:
+				_ghost.append([cell, int(old_board[cell])])
 	if sel >= 0 and (sel >= s["board"].size() or int(s["board"][sel]) < 0):
 		sel = -1
 	var playing = bool(s.get("playing", false)) and not bool(s.get("over", false))
@@ -128,6 +134,18 @@ func _draw() -> void:
 			var a = int(_flash[k2 - 1])
 			var c = int(_flash[k2])
 			draw_line(_o + (Vector2(a % gw, a / gw) + Vector2(0.5, 0.5)) * _t, _o + (Vector2(c % gw, c / gw) + Vector2(0.5, 0.5)) * _t, Color("#ff3b30"), 4.0)
+	var ge = _ease((Time.get_ticks_msec() - _flash_ms) / 300.0)
+	if ge < 1.0:
+		for g in _ghost:
+			var gi = int(g[0])
+			var gp = _o + Vector2(gi % gw, gi / gw) * _t
+			var gr = Rect2(gp + Vector2(1, 1), Vector2(_t - 2, _t - 2))
+			var sc = 1.0 - ge
+			var cc = gr.get_center()
+			draw_set_transform(cc * (1.0 - sc), 0.0, Vector2(sc, sc))
+			draw_rect(gr, Color(1, 0.95, 0.6, 1.0 - ge))
+			draw_string(font, Vector2(gr.position.x, gr.position.y + gr.size.y * 0.5 + fs * 0.36), L.KINDS[int(g[1]) % L.KINDS.size()], HORIZONTAL_ALIGNMENT_CENTER, gr.size.x, fs, Color(0.8, 0.2, 0.1, 1.0 - ge))
+			draw_set_transform(Vector2.ZERO)
 	_draw_panel(font)
 
 
@@ -174,3 +192,8 @@ func _gui_input(event: InputEvent) -> void:
 	else:
 		sel = i
 	queue_redraw()
+
+
+static func _ease(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)
