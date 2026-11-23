@@ -48,7 +48,9 @@ static func _own(b: Array, i: int, sg: int) -> bool:
 static func _palace(x: int, y: int, sg: int) -> bool:
 	if x < 3 or x > 5:
 		return false
-	return y >= 7 if sg > 0 else (y >= 0 and y <= 2)
+	if sg > 0:
+		return y >= 7 and y <= 9
+	return y >= 0 and y <= 2
 
 
 static func _add(b: Array, i: int, x: int, y: int, sg: int, out: Array) -> void:
