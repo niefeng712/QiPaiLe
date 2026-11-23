@@ -32,7 +32,8 @@
 | 血战到底 | ✅ 已上线 | 四川麻将：108张，换三张、定缺，一家胡了继续打，查花猪/查大叫，刮风下雨 |
 | 广东推倒胡 | ✅ 已上线 | 136张不能吃，只能自摸/可点炮，抢杠胡，买马 |
 | 大众麻将 | ✅ 已上线 | 136张能吃碰杠，可点炮，常见番型 |
-| 中国象棋、四国军棋、连连看 | 后续 | |
+| 中国象棋 | ✅ 已上线 | 标准规则（蹩马腿、塞象眼、炮架、将帅照面、不能送将），将死/困毙判负，认输，电脑三档难度 |
+| 四国军棋、两国军棋、连连看、跑得快、德州扑克 | 开发中 | |
 
 ## 技术结构
 
@@ -45,6 +46,7 @@ scenes/
 games/
   gomoku/          五子棋：GomokuLogic.gd（规则 + 电脑AI）、GomokuView.gd（界面）
   ludo/            飞行棋：LudoLogic.gd、LudoView.gd
+  xiangqi/         中国象棋：XqRules.gd（走法/将军判断/电脑搜索）、XiangqiLogic.gd、XiangqiView.gd
   checkers/        中国跳棋：CcRules.gd（121孔棋盘/走法）、CheckersLogic.gd、CheckersView.gd
   mahjong/         麻将：MjRules.gd（向听数/胡牌判定/电脑出牌）、MahjongLogic.gd（三种玩法）、MahjongView.gd
   tuolaji/         升级拖拉机：TljRules.gd（牌型/跟牌/甩牌判定）、TuolajiLogic.gd、TuolajiView.gd

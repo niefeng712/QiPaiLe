@@ -13,6 +13,8 @@ const MjRules = preload("res://games/mahjong/MjRules.gd")
 const MjLogic = preload("res://games/mahjong/MahjongLogic.gd")
 const CcRules = preload("res://games/checkers/CcRules.gd")
 const CcLogic = preload("res://games/checkers/CheckersLogic.gd")
+const XqRules = preload("res://games/xiangqi/XqRules.gd")
+const XqLogic = preload("res://games/xiangqi/XiangqiLogic.gd")
 
 
 func _init() -> void:
@@ -73,6 +75,10 @@ func _init() -> void:
 	for cm in ccm:
 		for i in int(cm[2]):
 			failures += _test_cc_game(cm[0], cm[1], i + 1)
+	failures += _test_xq_rules()
+	failures += _test_xq_game("easy", 1, 80)
+	failures += _test_xq_game("normal", 2, 16)
+	failures += _test_xq_game("hard", 3, 4)
 	if failures == 0:
 		print("ALL TESTS PASSED")
 	else:
@@ -588,4 +594,88 @@ func _test_cc_game(seats: Array, rules: Dictionary, rn: int) -> int:
 		if lg.in_target_count(w) < np and lg.moves / seats.size() < CcLogic.BLOCK_ROUNDS:
 			return _fail("cc winner %d finished early with only %d pieces in target" % [w, lg.in_target_count(w)])
 	print("cc %dp %s r%d: %d moves (%d rounds)%s, finished %s, ranking %s, in-target %s, %dms" % [seats.size(), str(rules), rn, lg.moves, lg.moves / seats.size(), " CAPPED" if lg.capped else "", str(lg.finished), str(lg.ranking), str(prog), Time.get_ticks_msec() - t0])
+	return 0
+
+
+# ---------------------------------------------------------------- 中国象棋
+
+func _xb() -> Array:
+	var b = []
+	b.resize(90)
+	b.fill(0)
+	return b
+
+
+func _test_xq_rules() -> int:
+	var f = 0
+	var b = XqRules.initial()
+	f += _expect(XqRules.legal(b, 1).size() == 44, "xq opening has 44 legal moves (got %d)" % XqRules.legal(b, 1).size())
+	f += _expect(XqRules.legal(b, -1).size() == 44, "xq black opening 44")
+	# 马蹩腿：红马 b0(1,9) 前面放一个子挡住
+	b[8 * 9 + 1] = 7
+	f += _expect(not XqRules.legal_from(b, 1, 9 * 9 + 1).has(7 * 9 + 2), "xq horse leg blocked")
+	# 炮隔一子吃：红炮(1,7) 打黑马(1,0)，中间隔着黑炮(1,2)
+	b = XqRules.initial()
+	f += _expect(XqRules.legal_from(b, 1, 7 * 9 + 1).has(0 * 9 + 1), "xq cannon captures over screen")
+	f += _expect(not XqRules.legal_from(b, 1, 7 * 9 + 1).has(2 * 9 + 1), "xq cannon can't capture without screen")
+	# 将帅照面
+	b = _xb()
+	b[0 * 9 + 4] = -1
+	b[9 * 9 + 4] = 1
+	b[5 * 9 + 4] = 5
+	f += _expect(not XqRules.legal_from(b, 1, 5 * 9 + 4).has(5 * 9 + 0), "xq can't expose kings face to face")
+	f += _expect(XqRules.legal_from(b, 1, 5 * 9 + 4).has(3 * 9 + 4), "xq rook can move along the file")
+	# 双车错杀
+	b = _xb()
+	b[0 * 9 + 4] = -1
+	b[9 * 9 + 3] = 1
+	b[0 * 9 + 8] = 5
+	b[1 * 9 + 0] = 5
+	f += _expect(XqRules.in_check(b, -1) and XqRules.legal(b, -1).is_empty(), "xq double rook mate")
+	# 象不过河、象塞眼
+	b = _xb()
+	b[0 * 9 + 4] = -1
+	b[9 * 9 + 4] = 1
+	b[5 * 9 + 2] = 3
+	f += _expect(not XqRules.legal_from(b, 1, 5 * 9 + 2).has(3 * 9 + 0), "xq elephant can't cross river")
+	b[6 * 9 + 3] = 7
+	f += _expect(not XqRules.legal_from(b, 1, 5 * 9 + 2).has(7 * 9 + 4), "xq elephant eye blocked")
+	# 兵没过河不能横走
+	b = XqRules.initial()
+	f += _expect(XqRules.legal_from(b, 1, 6 * 9 + 0) == [5 * 9 + 0], "xq pawn only forward before river")
+	# 电脑能看出一步杀
+	b = _xb()
+	b[0 * 9 + 4] = -1
+	b[9 * 9 + 3] = 1
+	b[1 * 9 + 0] = 5
+	b[5 * 9 + 8] = 5
+	var m = XqRules.best_move(b, 1, 2, 5000)
+	f += _expect(m.size() == 2 and int(m[1]) == 0 * 9 + 8, "xq bot finds mate in one (got %s)" % str(m))
+	if f == 0:
+		print("xiangqi rules ok")
+	return f
+
+
+func _test_xq_game(level: String, rn: int, max_plies: int) -> int:
+	var lg = XqLogic.new()
+	lg.setup([0, 1], {"first": "alternate", "level": level}, rn)
+	var t0 = Time.get_ticks_msec()
+	var worst = 0
+	while not lg.is_over() and lg.plies < max_plies:
+		var s = lg.current_seat()
+		var t1 = Time.get_ticks_msec()
+		var a = lg.bot_action(s)
+		worst = maxi(worst, Time.get_ticks_msec() - t1)
+		if a.is_empty():
+			return _fail("xq bot empty")
+		var err = lg.apply(s, a)
+		if err != "":
+			return _fail("xq bot illegal: " + err)
+		var kings = 0
+		for v in lg.board:
+			if absi(int(v)) == 1:
+				kings += 1
+		if kings != 2:
+			return _fail("xq king captured")
+	print("xq %s: %d plies%s, worst think %dms, total %dms, %s" % [level, lg.plies, " OVER" if lg.is_over() else "", worst, Time.get_ticks_msec() - t0, lg.event])
 	return 0
