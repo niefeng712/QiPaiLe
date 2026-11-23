@@ -18,6 +18,9 @@ const XqLogic = preload("res://games/xiangqi/XiangqiLogic.gd")
 const JqBoard = preload("res://games/junqi/JqBoard.gd")
 const JqLogic = preload("res://games/junqi/JunqiLogic.gd")
 const LlkLogic = preload("res://games/lianliankan/LlkLogic.gd")
+const PdkRules = preload("res://games/paodekuai/PdkRules.gd")
+const PdkLogic = preload("res://games/paodekuai/PdkLogic.gd")
+const TxLogic = preload("res://games/texas/TexasLogic.gd")
 
 
 func _init() -> void:
@@ -92,6 +95,26 @@ func _init() -> void:
 	failures += _test_llk_game([0], {"size": "normal", "time": "600", "level": "hard"})
 	failures += _test_llk_game([0, 1, 2], {"size": "small", "time": "180", "level": "normal"})
 	failures += _test_llk_game([0, 3], {"size": "large", "time": "180", "level": "easy"})
+	failures += _test_pdk_rules()
+	var pdk_carry = {}
+	for i in 6:
+		var r = {"deck": "16" if i < 4 else "15", "must": "on" if i % 2 == 0 else "off", "spade3": "on", "_carry": pdk_carry}
+		var res = _test_pdk_game(r, i + 1)
+		if typeof(res) == TYPE_INT:
+			failures += int(res)
+		else:
+			pdk_carry = res
+	failures += _test_tx_rules()
+	var tx_carry = {}
+	for i in 12:
+		var seats = [0, 1, 2, 3, 4, 5] if i < 6 else ([0, 3] if i < 9 else [1, 2, 4])
+		if i == 6 or i == 9:
+			tx_carry = {}
+		var res = _test_tx_hand(seats, {"stack": "1000", "blinds": "10", "_carry": tx_carry}, i + 1, i == 11)
+		if typeof(res) == TYPE_INT:
+			failures += int(res)
+		else:
+			tx_carry = res
 	if failures == 0:
 		print("ALL TESTS PASSED")
 	else:
@@ -897,3 +920,146 @@ func _test_llk_game(seats: Array, rules: Dictionary) -> int:
 	if seats.size() == 1 and not lg.done.has(0):
 		return _fail("llk fast bot couldn't clear the board in 10 minutes")
 	return 0
+
+
+# ---------------------------------------------------------------- 跑得快
+
+func _pc(r: int, s: int) -> int:
+	return PdkRules.card_id(r, s)
+
+
+func _pt(cards: Array, final: bool = false) -> String:
+	return str(PdkRules.classify(cards, final).get("type", "none"))
+
+
+func _test_pdk_rules() -> int:
+	var f = 0
+	f += _expect(_pt([_pc(3, 0), _pc(3, 1), _pc(4, 0), _pc(4, 2)]) == "pairs", "pdk two consecutive pairs")
+	f += _expect(_pt([_pc(5, 0), _pc(5, 1), _pc(5, 2), _pc(9, 0), _pc(11, 2)]) == "triple", "pdk three with two")
+	f += _expect(_pt([_pc(5, 0), _pc(5, 1), _pc(5, 2), _pc(9, 0)]) == "none", "pdk three with one not allowed mid-game")
+	f += _expect(_pt([_pc(5, 0), _pc(5, 1), _pc(5, 2), _pc(9, 0)], true) == "triple", "pdk three with one allowed as last hand")
+	f += _expect(_pt([_pc(10, 0), _pc(11, 0), _pc(12, 1), _pc(13, 0), _pc(14, 3)]) == "straight", "pdk straight to A")
+	f += _expect(_pt([_pc(11, 0), _pc(12, 0), _pc(13, 1), _pc(14, 0), _pc(15, 0)]) == "none", "pdk straight can't include 2")
+	f += _expect(_pt([_pc(6, 0), _pc(6, 1), _pc(6, 2), _pc(7, 0), _pc(7, 1), _pc(7, 2), _pc(3, 0), _pc(4, 0), _pc(9, 1), _pc(12, 2)]) == "plane", "pdk plane")
+	var b8 = PdkRules.classify([_pc(8, 0), _pc(8, 1), _pc(8, 2), _pc(8, 3)], false)
+	var st = PdkRules.classify([_pc(3, 0), _pc(4, 0), _pc(5, 1), _pc(6, 0), _pc(7, 3)], false)
+	f += _expect(PdkRules.can_beat(b8, st) and not PdkRules.can_beat(st, b8), "pdk bomb beats straight")
+	var p5 = PdkRules.classify([_pc(5, 0), _pc(5, 1)], false)
+	f += _expect(not PdkRules.candidates([_pc(6, 0), _pc(6, 2), _pc(3, 0)], p5).is_empty(), "pdk candidate pair")
+	# 报单：下家剩一张时出单张必须出最大的
+	var lg = PdkLogic.new()
+	lg.setup([0, 1, 2], {"spade3": "off"}, 1)
+	lg.turn = 0
+	lg.hands = [[_pc(3, 1), _pc(9, 0), _pc(15, 0)], [_pc(4, 0)], [_pc(5, 0), _pc(6, 0)]]
+	lg.last_play = {}
+	f += _expect(lg.apply(0, {"type": "play", "cards": [_pc(3, 1)]}) != "", "pdk must play largest single when next player has one card")
+	f += _expect(lg.apply(0, {"type": "play", "cards": [_pc(15, 0)]}) == "", "pdk largest single ok")
+	if f == 0:
+		print("paodekuai rules ok")
+	return f
+
+
+func _test_pdk_game(rules: Dictionary, rn: int):
+	var lg = PdkLogic.new()
+	lg.setup([0, 1, 2], rules, rn)
+	var steps = 0
+	var total = lg.start_n * 3
+	while not lg.is_over() and steps < 1000:
+		var s = lg.current_seat()
+		var a = lg.bot_action(s)
+		var err = lg.apply(s, a)
+		if err != "":
+			return _fail("pdk bot illegal %s: %s" % [str(a), err])
+		var c = lg.played_count
+		for h in lg.hands:
+			c += h.size()
+		if c != total:
+			return _fail("pdk card count")
+		steps += 1
+	if not lg.is_over():
+		return _fail("pdk never finished")
+	var sum = 0
+	for v in lg.scores:
+		sum += int(v)
+	if sum != 0:
+		return _fail("pdk scores not zero-sum")
+	print("pdk %s r%d: %d actions, winner %d, bombs %s, scores %s" % [str(rules.get("deck")) + "/" + str(rules.get("must")), rn, steps, lg.winner, str(lg.bombs), str(lg.scores)])
+	return lg.carry_out()
+
+
+# ---------------------------------------------------------------- 德州扑克
+
+func _tc2(r: int, s: int) -> int:
+	return (r - 2) * 4 + s
+
+
+func _test_tx_rules() -> int:
+	var f = 0
+	var royal = TxLogic.eval5([_tc2(14, 1), _tc2(13, 1), _tc2(12, 1), _tc2(11, 1), _tc2(10, 1)])
+	var quads = TxLogic.eval5([_tc2(9, 0), _tc2(9, 1), _tc2(9, 2), _tc2(9, 3), _tc2(2, 1)])
+	var full = TxLogic.eval5([_tc2(3, 0), _tc2(3, 1), _tc2(3, 2), _tc2(2, 3), _tc2(2, 1)])
+	var flush = TxLogic.eval5([_tc2(2, 2), _tc2(5, 2), _tc2(9, 2), _tc2(11, 2), _tc2(13, 2)])
+	var wheel = TxLogic.eval5([_tc2(14, 0), _tc2(2, 1), _tc2(3, 2), _tc2(4, 3), _tc2(5, 0)])
+	var six_high = TxLogic.eval5([_tc2(6, 0), _tc2(2, 1), _tc2(3, 2), _tc2(4, 3), _tc2(5, 0)])
+	var two_pair = TxLogic.eval5([_tc2(13, 0), _tc2(13, 1), _tc2(4, 2), _tc2(4, 3), _tc2(9, 0)])
+	var two_pair_low = TxLogic.eval5([_tc2(13, 2), _tc2(13, 3), _tc2(4, 0), _tc2(4, 1), _tc2(8, 0)])
+	f += _expect(TxLogic.hand_name(royal) == "皇家同花顺", "tx royal flush")
+	f += _expect(royal > quads and quads > full and full > flush and flush > six_high and six_high > wheel, "tx category order")
+	f += _expect(TxLogic.hand_name(wheel) == "顺子" and TxLogic.hand_name(two_pair) == "两对", "tx wheel straight & two pair")
+	f += _expect(two_pair > two_pair_low, "tx kicker decides")
+	var b7 = TxLogic.best7([_tc2(14, 0), _tc2(14, 1), _tc2(7, 2), _tc2(7, 3), _tc2(7, 0), _tc2(2, 1), _tc2(9, 2)])
+	f += _expect(TxLogic.hand_name(int(b7[0])) == "葫芦" and b7[1].size() == 5, "tx best of seven")
+	var b6 = TxLogic.best7([_tc2(10, 0), _tc2(11, 0), _tc2(12, 0), _tc2(13, 0), _tc2(14, 0), _tc2(2, 1)])
+	f += _expect(TxLogic.hand_name(int(b6[0])) == "皇家同花顺", "tx best of six")
+	# 边池：三人全下，筹码不同
+	var lg = TxLogic.new()
+	lg.setup([0, 1, 2], {"stack": "1000", "_carry": {"chips": {"0": 100, "1": 300, "2": 600}}}, 1)
+	var guard = 0
+	while not lg.is_over() and guard < 50:
+		var s = lg.current_seat()
+		var err = lg.apply(s, {"type": "allin"})
+		if err != "":
+			err = lg.apply(s, {"type": "call"})
+		if err != "":
+			err = lg.apply(s, {"type": "check"})
+		guard += 1
+	var tot = 0
+	for s in lg.order:
+		tot += int(lg.chips[s])
+	f += _expect(lg.is_over() and tot == 1000 and lg.board.size() == 5, "tx side pots keep chips (total %d)" % tot)
+	f += _expect(int(lg.chips[0]) <= 300, "tx short stack can win at most 3x its stack")
+	if f == 0:
+		print("texas rules ok")
+	return f
+
+
+func _test_tx_hand(seats: Array, rules: Dictionary, rn: int, verbose: bool):
+	var lg = TxLogic.new()
+	lg.setup(seats, rules, rn)
+	var before = 0
+	for s in lg.order:
+		before += int(lg.chips[s]) + int(lg.total[s])
+	var steps = 0
+	while not lg.is_over() and steps < 400:
+		var s = lg.current_seat()
+		var a = lg.bot_action(s)
+		var err = lg.apply(s, a)
+		if err != "":
+			return _fail("tx bot illegal %s: %s" % [str(a), err])
+		steps += 1
+	if not lg.is_over():
+		return _fail("tx hand never finished")
+	var after = 0
+	for s in lg.order:
+		after += int(lg.chips[s])
+		if int(lg.chips[s]) < 0:
+			return _fail("tx negative chips")
+	if after != before:
+		return _fail("tx chips not conserved %d -> %d" % [before, after])
+	var sum = 0
+	for v in lg.round_scores():
+		sum += int(v)
+	if sum != 0:
+		return _fail("tx scores not zero-sum")
+	print("tx %dp r%d: %d actions, street %d, pot %d, winners %s ｜ %s" % [seats.size(), rn, steps, lg.street, lg.pot(), str(lg.winners()), lg.event.right(50)])
+	return lg.carry_out()
