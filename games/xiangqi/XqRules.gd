@@ -170,9 +170,50 @@ static func in_check(b: Array, sg: int) -> bool:
 	var k = king_pos(b, sg)
 	if k < 0:
 		return true
-	for m in pseudo(b, -sg):
-		if int(m[1]) == k:
+	return attacked(b, k, -sg)
+
+
+## 位置 k 是否被 by 方攻击（只检查能打到对方九宫的棋子：车、炮、马、兵、将帅照面）
+static func attacked(b: Array, k: int, by: int) -> bool:
+	var kx = k % 9
+	var ky = k / 9
+	for d in ORTHO:
+		var x = kx + d[0]
+		var y = ky + d[1]
+		var seen = 0
+		while x >= 0 and x <= 8 and y >= 0 and y <= 9:
+			var q = int(b[y * 9 + x])
+			if q != 0:
+				if seen == 0:
+					if q == 5 * by:
+						return true
+					if q == by and d[0] == 0:
+						return true
+					seen = 1
+				else:
+					if q == 6 * by:
+						return true
+					break
+			x += d[0]
+			y += d[1]
+	for kn in KNIGHT:
+		var nx = kx - kn[0]
+		var ny = ky - kn[1]
+		if nx < 0 or nx > 8 or ny < 0 or ny > 9:
+			continue
+		if int(b[ny * 9 + nx]) != 4 * by:
+			continue
+		if int(b[(ny + kn[3]) * 9 + nx + kn[2]]) == 0:
 			return true
+	var py = ky + 1 if by > 0 else ky - 1
+	if py >= 0 and py <= 9 and int(b[py * 9 + kx]) == 7 * by:
+		return true
+	var crossed = ky <= 4 if by > 0 else ky >= 5
+	if crossed:
+		for dx in [-1, 1]:
+			var sx = kx + dx
+			if sx >= 0 and sx <= 8 and int(b[ky * 9 + sx]) == 7 * by:
+				return true
 	return false
 
 
@@ -246,6 +287,9 @@ static func _ordered(b: Array, sg: int) -> Array:
 static func _negamax(b: Array, sg: int, depth: int, alpha: int, beta: int) -> int:
 	nodes += 1
 	if depth <= 0 or nodes > budget:
+		var ek = king_pos(b, -sg)
+		if ek < 0 or attacked(b, ek, sg):
+			return 50000
 		return sg * evaluate(b)
 	var best = -100000
 	for m in _ordered(b, sg):

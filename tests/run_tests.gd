@@ -650,7 +650,31 @@ func _test_xq_rules() -> int:
 	b[1 * 9 + 0] = 5
 	b[5 * 9 + 8] = 5
 	var m = XqRules.best_move(b, 1, 2, 5000)
-	f += _expect(m.size() == 2 and int(m[1]) == 0 * 9 + 8, "xq bot finds mate in one (got %s)" % str(m))
+	var tb = b.duplicate()
+	if m.size() == 2:
+		tb[int(m[1])] = tb[int(m[0])]
+		tb[int(m[0])] = 0
+	f += _expect(m.size() == 2 and XqRules.legal(tb, -1).is_empty(), "xq bot finds mate in one (got %s)" % str(m))
+	# 随机局面里，快速"被攻击"判断要和完整走法生成的结果一致
+	var rb = XqRules.initial()
+	var sg = 1
+	for it in 120:
+		var ms = XqRules.legal(rb, sg)
+		if ms.is_empty():
+			break
+		var mv = ms[randi() % ms.size()]
+		rb[int(mv[1])] = rb[int(mv[0])]
+		rb[int(mv[0])] = 0
+		sg = -sg
+		for side in [1, -1]:
+			var kp = XqRules.king_pos(rb, side)
+			var slow = false
+			for pm in XqRules.pseudo(rb, -side):
+				if int(pm[1]) == kp:
+					slow = true
+			if slow != XqRules.attacked(rb, kp, -side):
+				f += _expect(false, "xq fast attack check mismatch")
+				break
 	if f == 0:
 		print("xiangqi rules ok")
 	return f
