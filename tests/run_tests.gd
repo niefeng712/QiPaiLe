@@ -21,6 +21,8 @@ const LlkLogic = preload("res://games/lianliankan/LlkLogic.gd")
 const PdkRules = preload("res://games/paodekuai/PdkRules.gd")
 const PdkLogic = preload("res://games/paodekuai/PdkLogic.gd")
 const TxLogic = preload("res://games/texas/TexasLogic.gd")
+const ZjhLogic = preload("res://games/zhajinhua/ZjhLogic.gd")
+const BjLogic = preload("res://games/blackjack/BjLogic.gd")
 
 
 func _init() -> void:
@@ -115,6 +117,29 @@ func _init() -> void:
 			failures += int(res)
 		else:
 			tx_carry = res
+	failures += _test_zjh_rules()
+	var zc = {}
+	for i in 10:
+		var zs = [0, 1, 2, 3, 4, 5] if i < 5 else [0, 2]
+		if i == 5:
+			zc = {}
+		var zr = {"base": "10", "stack": "1000", "rounds": "10" if i % 2 == 0 else "15", "first": "on" if i < 7 else "off", "s235": "on", "_carry": zc}
+		var res = _test_zjh_hand(zs, zr, i + 1)
+		if typeof(res) == TYPE_INT:
+			failures += int(res)
+		else:
+			zc = res
+	failures += _test_bj_rules()
+	var bc = {}
+	for i in 12:
+		var bs = [0] if i < 4 else [0, 1, 2, 3, 4]
+		if i == 4:
+			bc = {}
+		var res2 = _test_bj_round(bs, {"stack": "1000", "dealer": "h17" if i % 3 == 0 else "s17", "_carry": bc}, i + 1)
+		if typeof(res2) == TYPE_INT:
+			failures += int(res2)
+		else:
+			bc = res2
 	if failures == 0:
 		print("ALL TESTS PASSED")
 	else:
@@ -1062,4 +1087,146 @@ func _test_tx_hand(seats: Array, rules: Dictionary, rn: int, verbose: bool):
 	if sum != 0:
 		return _fail("tx scores not zero-sum")
 	print("tx %dp r%d: %d actions, street %d, pot %d, winners %s ｜ %s" % [seats.size(), rn, steps, lg.street, lg.pot(), str(lg.winners()), lg.event.right(50)])
+	return lg.carry_out()
+
+
+# ---------------------------------------------------------------- 炸金花
+
+func _zc(r: int, s: int) -> int:
+	return (r - 2) * 4 + s
+
+
+func _test_zjh_rules() -> int:
+	var f = 0
+	var leopard = [_zc(5, 0), _zc(5, 1), _zc(5, 2)]
+	var sflush = [_zc(12, 1), _zc(13, 1), _zc(14, 1)]
+	var flush = [_zc(2, 2), _zc(9, 2), _zc(13, 2)]
+	var straight = [_zc(4, 0), _zc(5, 3), _zc(6, 1)]
+	var a23 = [_zc(14, 0), _zc(2, 3), _zc(3, 1)]
+	var pair = [_zc(8, 0), _zc(8, 3), _zc(2, 1)]
+	var high = [_zc(14, 2), _zc(9, 0), _zc(4, 1)]
+	var s235 = [_zc(2, 0), _zc(3, 1), _zc(5, 2)]
+	f += _expect(ZjhLogic.hand_name(leopard) == "豹子" and ZjhLogic.hand_name(sflush) == "顺金" and ZjhLogic.hand_name(a23) == "顺子", "zjh names")
+	var order = [leopard, sflush, flush, straight, a23, pair, high]
+	for k in range(1, order.size()):
+		f += _expect(ZjhLogic.compare(order[k - 1], order[k], false) == 1, "zjh order %d" % k)
+	f += _expect(ZjhLogic.compare(s235, leopard, true) == 1 and ZjhLogic.compare(s235, leopard, false) == -1, "zjh 235 beats leopard only when enabled")
+	f += _expect(ZjhLogic.compare(s235, high, true) == -1, "zjh 235 is otherwise the smallest")
+	f += _expect(ZjhLogic.compare([_zc(9, 0), _zc(7, 1), _zc(4, 2)], [_zc(9, 1), _zc(7, 2), _zc(4, 3)], true) == 0, "zjh equal hands tie")
+	f += _expect(ZjhLogic.compare([_zc(8, 0), _zc(8, 1), _zc(13, 2)], [_zc(8, 2), _zc(8, 3), _zc(12, 0)], true) == 1, "zjh pair kicker")
+	# 比牌时一样大，主动比的人输
+	var lg = ZjhLogic.new()
+	lg.setup([0, 1], {"first": "off"}, 1)
+	lg.hands[0] = [_zc(9, 0), _zc(7, 1), _zc(4, 2)]
+	lg.hands[1] = [_zc(9, 1), _zc(7, 2), _zc(4, 3)]
+	var cur = lg.current_seat()
+	var other = 1 - cur
+	f += _expect(lg.apply(cur, {"type": "compare", "target": other}) == "" and lg.is_over() and lg.winners() == [other], "zjh initiator loses a tie")
+	if f == 0:
+		print("zhajinhua rules ok")
+	return f
+
+
+func _test_zjh_hand(seats: Array, rules: Dictionary, rn: int):
+	var lg = ZjhLogic.new()
+	lg.setup(seats, rules, rn)
+	var before = 0
+	for s in lg.order:
+		before += int(lg.chips[s]) + int(lg.paid[s])
+	var steps = 0
+	var acts = {}
+	while not lg.is_over() and steps < 500:
+		var s = lg.current_seat()
+		var a = lg.bot_action(s)
+		if a.is_empty():
+			return _fail("zjh bot empty")
+		var err = lg.apply(s, a)
+		if err != "":
+			return _fail("zjh bot illegal %s: %s" % [str(a), err])
+		acts[str(a["type"])] = int(acts.get(str(a["type"]), 0)) + 1
+		steps += 1
+	if not lg.is_over():
+		return _fail("zjh never finished")
+	var after = 0
+	for s in lg.order:
+		after += int(lg.chips[s])
+		if int(lg.chips[s]) < 0:
+			return _fail("zjh negative chips")
+	if after != before:
+		return _fail("zjh chips not conserved %d -> %d" % [before, after])
+	var sum = 0
+	for v in lg.round_scores():
+		sum += int(v)
+	if sum != 0:
+		return _fail("zjh scores not zero-sum")
+	print("zjh %dp r%d: %d actions %s, pot %d, winners %s" % [seats.size(), rn, steps, str(acts), lg.pot(), str(lg.winners())])
+	return lg.carry_out()
+
+
+# ---------------------------------------------------------------- 21点
+
+func _bc(r: int, s: int) -> int:
+	return (r - 1) * 4 + s
+
+
+func _test_bj_rules() -> int:
+	var f = 0
+	f += _expect(BjLogic.total([_bc(1, 0), _bc(6, 1)]) == [17, true], "bj soft 17")
+	f += _expect(BjLogic.total([_bc(1, 0), _bc(6, 1), _bc(10, 2)]) == [17, false], "bj ace drops to 1")
+	f += _expect(BjLogic.total([_bc(1, 0), _bc(1, 1), _bc(9, 2)]) == [21, true], "bj two aces")
+	f += _expect(BjLogic.is_bj([_bc(1, 0), _bc(13, 2)]) and not BjLogic.is_bj([_bc(7, 0), _bc(7, 1), _bc(7, 2)]), "bj natural")
+	var lg = BjLogic.new()
+	lg.setup([0], {"stack": "1000"}, 1)
+	lg.apply(0, {"type": "bet", "amount": 100})
+	if lg.phase == "play":
+		lg.hands[0] = [lg._new_hand([_bc(8, 0), _bc(8, 1)], 100, false)]
+		lg.seat_i = 0
+		lg.hand_i = 0
+		f += _expect(lg.can_split(0), "bj can split 8s")
+		f += _expect(lg.apply(0, {"type": "split"}) == "" and lg.hands[0].size() == 2 and int(lg.chips[0]) == 800, "bj split takes a second bet")
+	if f == 0:
+		print("blackjack rules ok")
+	return f
+
+
+func _test_bj_round(seats: Array, rules: Dictionary, rn: int):
+	var lg = BjLogic.new()
+	lg.setup(seats, rules, rn)
+	var before = {}
+	for s in lg.order:
+		before[s] = int(lg.chips[s])
+	var steps = 0
+	var acts = {}
+	while not lg.is_over() and steps < 300:
+		var s = lg.current_seat()
+		var a = lg.bot_action(s)
+		if a.is_empty():
+			return _fail("bj bot empty in %s" % lg.phase)
+		var err = lg.apply(s, a)
+		if err != "":
+			return _fail("bj bot illegal %s: %s" % [str(a), err])
+		acts[str(a["type"])] = int(acts.get(str(a["type"]), 0)) + 1
+		steps += 1
+	if not lg.is_over():
+		return _fail("bj never finished")
+	var dt = int(BjLogic.total(lg.dealer)[0])
+	if dt < 17 and not lg.dealer_bj:
+		var need = false
+		for s in lg.order:
+			for h in lg.hands[s]:
+				if str(h["result"]) != "爆牌" and str(h["result"]) != "黑杰克":
+					need = true
+		if need:
+			return _fail("bj dealer stopped below 17")
+	var res = []
+	for s in lg.order:
+		var bet_total = 0
+		var pay_total = 0
+		for h in lg.hands[s]:
+			bet_total += int(h["bet"])
+			pay_total += int(h["payout"])
+			res.append(str(h["result"]))
+		if int(lg.chips[s]) != int(before[s]) - bet_total + pay_total:
+			return _fail("bj chip accounting for seat %d" % int(s))
+	print("bj %dp r%d: %s, dealer %d%s, results %s, scores %s" % [seats.size(), rn, str(acts), dt, " BJ" if lg.dealer_bj else "", str(res), str(lg.round_scores())])
 	return lg.carry_out()

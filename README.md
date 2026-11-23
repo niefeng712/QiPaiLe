@@ -37,6 +37,8 @@
 | 两国军棋 | ✅ 已上线 | 2人陆战棋，三处过山界，规则同四国军棋 |
 | 连连看 | ✅ 已上线 | 两个拐弯以内连线消除，单人限时挑战 / 多人同时比赛，提示、重排，自动重排保证有解 |
 | 跑得快 | ✅ 已上线 | 3人，16张/15张，♠3先出，有大必压，报单出最大，被关双倍，炸弹另算 |
+| 炸金花 | ✅ 已上线 | 2~6人，闷牌/看牌（看牌双倍），跟注、加注、比牌、孤注一掷，235吃豹子，比满轮数开牌 |
+| 21点 | ✅ 已上线 | 1~5人对电脑庄家，要牌、停牌、加倍、分牌，黑杰克1赔1.5，庄家软17可选 |
 | 德州扑克 | ✅ 已上线 | 2~6人，四轮下注，边池，筹码计分，输光自动补满 |
 
 ## 技术结构
@@ -51,6 +53,8 @@ games/
   gomoku/          五子棋：GomokuLogic.gd（规则 + 电脑AI）、GomokuView.gd（界面）
   ludo/            飞行棋：LudoLogic.gd、LudoView.gd
   paodekuai/       跑得快：PdkRules.gd、PdkLogic.gd、PdkView.gd
+  zhajinhua/       炸金花：ZjhLogic.gd（牌型/下注/比牌）、ZjhView.gd
+  blackjack/       21点：BjLogic.gd、BjView.gd
   texas/           德州扑克：TexasLogic.gd（下注流程/边池/牌力）、TexasView.gd
   lianliankan/     连连看：LlkLogic.gd（连线判断/实时计时）、LlkView.gd
   junqi/           军棋：JqBoard.gd（四国/两国棋盘、铁路、碰子规则）、JunqiLogic.gd、JunqiView.gd
