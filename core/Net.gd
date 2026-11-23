@@ -402,15 +402,17 @@ func _public_state_for(seat: int) -> Dictionary:
 func _maybe_tally() -> void:
 	if _logic == null or _tallied or not _logic.is_over():
 		return
-	if not _logic.has_method("round_scores"):
-		return
 	_tallied = true
-	var sc = _logic.round_scores()
-	var tot = room.get("scores", {})
-	for i in sc.size():
-		var k = str(i)
-		tot[k] = int(tot.get(k, 0)) + int(sc[i])
-	room["scores"] = tot
+	if _logic.has_method("carry_out"):
+		# 跨局累计的比赛进度（例如升级的级数、下一局庄家）
+		room["carry"] = _logic.carry_out()
+	if _logic.has_method("round_scores"):
+		var sc = _logic.round_scores()
+		var tot = room.get("scores", {})
+		for i in sc.size():
+			var k = str(i)
+			tot[k] = int(tot.get(k, 0)) + int(sc[i])
+		room["scores"] = tot
 	_broadcast_room()
 
 
@@ -565,7 +567,9 @@ func _host_start() -> void:
 	_timeouts = {}
 	_round += 1
 	_tallied = false
-	_logic.setup(players, room["rules"], _round)
+	var setup_rules = room["rules"].duplicate(true)
+	setup_rules["_carry"] = room.get("carry", {})
+	_logic.setup(players, setup_rules, _round)
 	room["playing"] = true
 	_broadcast_room()
 	_broadcast_state()

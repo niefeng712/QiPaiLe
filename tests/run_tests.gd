@@ -7,6 +7,8 @@ const LudoLogic = preload("res://games/ludo/LudoLogic.gd")
 const Registry = preload("res://core/GameRegistry.gd")
 const DdzRules = preload("res://games/doudizhu/DdzRules.gd")
 const DdzLogic = preload("res://games/doudizhu/DoudizhuLogic.gd")
+const TljRules = preload("res://games/tuolaji/TljRules.gd")
+const TljLogic = preload("res://games/tuolaji/TuolajiLogic.gd")
 
 
 func _init() -> void:
@@ -37,6 +39,10 @@ func _init() -> void:
 	failures += _test_ddz_bots(modes[3], 2, true)
 	failures += _test_ddz_bots(modes[5], 3, true)
 	failures += _test_ddz_bots(modes[4], 4, true)
+	failures += _test_tlj_rules()
+	failures += _test_tlj_random()
+	failures += _test_tlj_match({"throw": "on", "bottom": "size"}, 10)
+	failures += _test_tlj_match({"throw": "off", "bottom": "2"}, 6)
 	if failures == 0:
 		print("ALL TESTS PASSED")
 	else:
@@ -244,4 +250,129 @@ func _test_ddz_bots(rules: Dictionary, round_no: int, timeout0: bool) -> int:
 	if played != lg.played_cards:
 		return _fail("ddz card counter mismatch")
 	print("ddz %dp %s/%s dbl=%s ming=%s laizi=%s r%d%s: %d actions, landlord %d, bombs %d, robs %d, ming x%d, doubles %s, mult x%d, scores %s, %dms" % [nn, str(rules.get("deal")), str(rules.get("bidmode")), str(rules.get("double")), str(rules.get("mingpai")), str(rules.get("laizi")), round_no, " (seat0 timeouts)" if timeout0 else "", steps, lg.landlord, lg.bombs, lg.robs, lg.ming_mult, str(lg.doubles), lg.final_mult, str(lg.round_scores()), Time.get_ticks_msec() - t0])
+	return 0
+
+
+# ---------------------------------------------------------------- 升级拖拉机
+
+func _tc(r: int, s: int, d: int = 0) -> int:
+	return TljRules.card_id(r, s, d)
+
+
+func _test_tlj_rules() -> int:
+	var f = 0
+	var ctx = TljRules.make_ctx(2, 1)
+	var d = TljRules.decompose([_tc(3, 0), _tc(3, 0, 1), _tc(4, 0), _tc(4, 0, 1)], ctx)
+	f += _expect(TljRules.max_tractor(d) == 2, "tlj plain tractor")
+	var ctx5 = TljRules.make_ctx(5, 1)
+	d = TljRules.decompose([_tc(4, 0), _tc(4, 0, 1), _tc(6, 0), _tc(6, 0, 1)], ctx5)
+	f += _expect(TljRules.max_tractor(d) == 2, "tlj tractor skips level rank")
+	var chain = [_tc(14, 1), _tc(14, 1, 1), _tc(2, 0), _tc(2, 0, 1), _tc(2, 1), _tc(2, 1, 1), 52, 106, 53, 107]
+	d = TljRules.decompose(chain, ctx)
+	f += _expect(TljRules.max_tractor(d) == 5, "tlj trump tractor A-副2-主2-小王-大王")
+	d = TljRules.decompose([_tc(2, 0), _tc(2, 0, 1), _tc(2, 2), _tc(2, 2, 1)], ctx)
+	f += _expect(TljRules.max_tractor(d) == 0 and TljRules.total_pairs(d) == 2, "two off-suit level pairs are not a tractor")
+	f += _expect(TljRules.eff(_tc(2, 3), ctx) == TljRules.TRUMP and TljRules.eff(_tc(9, 1), ctx) == TljRules.TRUMP and TljRules.eff(_tc(9, 0), ctx) == 0, "trump membership")
+	var lead = [_tc(9, 0), _tc(9, 0, 1)]
+	var hand = [_tc(5, 0), _tc(5, 0, 1), _tc(7, 0), _tc(8, 0), _tc(3, 2)]
+	f += _expect(TljRules.check_follow(hand, [_tc(7, 0), _tc(8, 0)], lead, ctx) != "", "must follow pair")
+	f += _expect(TljRules.check_follow(hand, [_tc(5, 0), _tc(5, 0, 1)], lead, ctx) == "", "pair follow ok")
+	f += _expect(TljRules.check_follow(hand, [_tc(7, 0), _tc(3, 2)], lead, ctx) != "", "must follow suit")
+	var tlead = [_tc(9, 0), _tc(9, 0, 1), _tc(10, 0), _tc(10, 0, 1)]
+	var th = [_tc(3, 0), _tc(3, 0, 1), _tc(4, 0), _tc(4, 0, 1), _tc(12, 0), _tc(13, 0)]
+	f += _expect(TljRules.check_follow(th, [_tc(3, 0), _tc(3, 0, 1), _tc(12, 0), _tc(13, 0)], tlead, ctx) != "", "must follow tractor")
+	f += _expect(TljRules.check_follow(th, [_tc(3, 0), _tc(3, 0, 1), _tc(4, 0), _tc(4, 0, 1)], tlead, ctx) == "", "tractor follow ok")
+	var lv = TljRules.play_value(lead, lead, ctx)
+	f += _expect(TljRules.better(TljRules.play_value([_tc(3, 1), _tc(3, 1, 1)], lead, ctx), lv), "trump pair ruffs plain pair")
+	f += _expect(not TljRules.better(TljRules.play_value([_tc(3, 1), _tc(4, 1)], lead, ctx), lv), "two trump singles can't beat a pair")
+	f += _expect(TljRules.better(TljRules.play_value([_tc(10, 0), _tc(10, 0, 1)], lead, ctx), lv), "higher pair wins")
+	f += _expect(not TljRules.better(TljRules.play_value([_tc(5, 0), _tc(5, 0, 1)], lead, ctx), lv), "lower pair loses")
+	var s1 = TljRules.play_value([_tc(2, 0)], [_tc(2, 2)], ctx)
+	f += _expect(not TljRules.better(s1, TljRules.play_value([_tc(2, 2)], [_tc(2, 2)], ctx)), "equal off-suit level cards: first one wins")
+	var thr = [_tc(14, 0), _tc(13, 0)]
+	var fl = TljRules.throw_fail(thr, [[_tc(14, 0, 1)], [_tc(3, 0)], []], ctx)
+	f += _expect(fl.size() == 1 and int(fl[0]) == _tc(13, 0), "failed throw forces the K")
+	f += _expect(TljRules.throw_fail(thr, [[_tc(12, 0)], [], [_tc(5, 1)]], ctx).is_empty(), "valid throw")
+	var thr2 = [_tc(14, 0), _tc(14, 0, 1), _tc(6, 0)]
+	f += _expect(TljRules.throw_fail(thr2, [[_tc(5, 0), _tc(4, 0)]], ctx).is_empty(), "pair A + small single throw ok when others only have smaller")
+	f += _expect(TljRules.throw_fail(thr2, [[_tc(7, 0)]], ctx).size() == 1, "throw fails on single")
+	if f == 0:
+		print("tuolaji rules ok")
+	return f
+
+
+func _test_tlj_random() -> int:
+	var f = 0
+	for it in 400:
+		var deck = []
+		for i in 108:
+			deck.append(i)
+		deck.shuffle()
+		var cx = TljRules.make_ctx(randi_range(2, 14), randi_range(-1, 3))
+		var h = deck.slice(0, randi_range(6, 25))
+		var other = deck.slice(60, 85)
+		var leads = [TljRules.lead_suggest(other, cx)]
+		var e = TljRules.eff(int(other[0]), cx)
+		var sc = TljRules.suit_cards(other, e, cx)
+		leads.append(sc.slice(0, mini(sc.size(), randi_range(1, 6))))
+		var od = TljRules.decompose(sc, cx)
+		if not od["tractors"].is_empty():
+			leads.append(od["tractors"][0][2])
+		for ld in leads:
+			if ld.is_empty():
+				continue
+			if not TljRules.same_suit(ld, cx):
+				return _fail("tlj lead not single suit")
+			if ld.size() > h.size():
+				continue
+			for mode in ["low", "high", "feed"]:
+				var pl = TljRules.follow_play(h, ld, cx, mode)
+				var err = TljRules.check_follow(h, pl, ld, cx)
+				if err != "" or pl.size() != ld.size():
+					return _fail("tlj follow_play %s illegal (%s) lead=%s play=%s" % [mode, err, str(ld), str(pl)])
+				for c in pl:
+					if not h.has(c):
+						return _fail("tlj follow_play used a card not in hand")
+		var b = TljRules.bury_suggest(deck.slice(0, 33), cx)
+		if b.size() != 8:
+			return _fail("tlj bury size")
+	print("tuolaji random follow ok")
+	return f
+
+
+func _test_tlj_match(rules: Dictionary, rounds: int) -> int:
+	var carry = {}
+	var t0 = Time.get_ticks_msec()
+	for rn in range(1, rounds + 1):
+		var r = rules.duplicate()
+		r["_carry"] = carry
+		var lg = TljLogic.new()
+		lg.setup([0, 1, 2, 3], r, rn)
+		var steps = 0
+		var phases = {}
+		while not lg.is_over() and steps < 3000:
+			var seat = lg.current_seat()
+			phases[lg.phase] = true
+			var a = lg.bot_action(seat)
+			if a.is_empty():
+				return _fail("tlj bot empty action in %s" % lg.phase)
+			var err = lg.apply(seat, a)
+			if err != "":
+				return _fail("tlj illegal %s in %s: %s" % [str(a), lg.phase, err])
+			var total = lg.played_count + lg.bottom.size()
+			for s in 4:
+				total += lg.hands[s].size()
+			if total != 108:
+				return _fail("tlj card count %d" % total)
+			steps += 1
+		if not lg.is_over():
+			return _fail("tlj round never finished")
+		if lg.tricks_done < 1 or lg.all_points + TljRules.sum_points(lg.bottom) != 200:
+			return _fail("tlj points don't add up to 200")
+		var st = lg.get_state_for(0)
+		if st["winners"].size() != 2:
+			return _fail("tlj winners")
+		print("tlj %s r%d: dealer %d, trump %d, level %d, tricks %d, attackers %d pts (bottom bonus %d), levels %s, next dealer %d%s" % [str(rules), rn, lg.dealer, lg.trump, lg.level, lg.tricks_done, lg.points, int(lg.result.get("bonus", 0)), str(lg.levels), lg.next_dealer, " MATCH OVER" if lg.match_over else ""])
+		carry = lg.carry_out()
+	print("tlj match ok in %dms" % (Time.get_ticks_msec() - t0))
 	return 0
