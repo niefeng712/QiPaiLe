@@ -28,6 +28,7 @@ var state = {}
 var _logic = null
 var _round = 0
 var _tallied = false
+var _timeouts = {}
 var _bot_token = 0
 var _enet = null
 var _reject_reason = ""
@@ -335,6 +336,24 @@ func back_to_room() -> void:
 	send({"t": "to_room"})
 
 
+func set_auto(on: bool) -> void:
+	send({"t": "auto", "on": on})
+
+
+func seat_auto(i: int) -> bool:
+	var seats = room.get("seats", [])
+	if i < 0 or i >= seats.size():
+		return false
+	return bool(seats[i].get("auto", false))
+
+
+func _turn_time() -> int:
+	var v = str(room.get("rules", {}).get("timer", "off"))
+	if not v.is_valid_int():
+		return 0
+	return int(v)
+
+
 func _to_peer(peer: int, msg: Dictionary) -> void:
 	if peer == 1:
 		_client_handle(msg)
@@ -376,6 +395,7 @@ func _public_state_for(seat: int) -> Dictionary:
 	var s = _logic.get_state_for(seat)
 	s["game_id"] = str(room["game_id"])
 	s["round"] = _round
+	s["turn_time"] = _turn_time()
 	return s
 
 
@@ -398,6 +418,7 @@ func _public_state() -> Dictionary:
 	var s = _logic.get_state()
 	s["game_id"] = str(room["game_id"])
 	s["round"] = _round
+	s["turn_time"] = _turn_time()
 	return s
 
 
@@ -430,6 +451,8 @@ func _host_handle(sender: int, msg: Dictionary) -> void:
 		_h_hello(sender, msg)
 	elif t == "action":
 		_h_action(sender, msg.get("a", {}))
+	elif t == "auto":
+		_h_auto(sender, bool(msg.get("on", false)))
 	elif t == "seat" and sender == 1:
 		_h_seat(int(msg.get("seat", -1)), str(msg.get("kind", "")))
 	elif t == "rule" and sender == 1:
@@ -536,6 +559,10 @@ func _host_start() -> void:
 		return
 	var logic_script = load(str(g["logic"]))
 	_logic = logic_script.new()
+	for s in seats:
+		if str(s["kind"]) == "human":
+			s["auto"] = false
+	_timeouts = {}
 	_round += 1
 	_tallied = false
 	_logic.setup(players, room["rules"], _round)
@@ -556,24 +583,71 @@ func _h_action(sender: int, a) -> void:
 	if res != "":
 		_to_peer(sender, {"t": "toast", "text": res})
 		return
+	_timeouts.erase(seat)
 	_broadcast_state()
 
 
+func _h_auto(sender: int, on: bool) -> void:
+	var i = _seat_of_peer(sender)
+	if i == -1:
+		return
+	room["seats"][i]["auto"] = on
+	_timeouts.erase(i)
+	_broadcast_room()
+	if bool(room.get("playing", false)) and _logic != null:
+		_schedule_bot()
+
+
 func _schedule_bot() -> void:
+	## 电脑座位 / 托管座位：自动出手；真人座位：开了倒计时就计时，超时自动处理，连续2次超时自动托管
 	_bot_token += 1
 	if _logic == null or _logic.is_over():
 		return
 	var seat = _logic.current_seat()
-	if seat < 0 or str(room["seats"][seat]["kind"]) != "bot":
+	if seat < 0 or seat >= room["seats"].size():
 		return
+	var sd = room["seats"][seat]
+	var is_bot = str(sd["kind"]) == "bot"
+	var is_auto = bool(sd.get("auto", false))
 	var token = _bot_token
-	await get_tree().create_timer(_logic.bot_delay()).timeout
-	if token != _bot_token or _logic == null:
+	if is_bot or is_auto:
+		var d = _logic.bot_delay() if is_bot else 0.6
+		await get_tree().create_timer(d).timeout
+		if token != _bot_token or _logic == null:
+			return
+		_run_auto(seat, false)
 		return
-	var a = _logic.bot_action(seat)
+	var tl = _turn_time()
+	if tl <= 0 or str(sd["kind"]) != "human":
+		return
+	await get_tree().create_timer(float(tl) + 0.3).timeout
+	if token != _bot_token or _logic == null or _logic.current_seat() != seat:
+		return
+	var cnt = int(_timeouts.get(seat, 0)) + 1
+	_timeouts[seat] = cnt
+	if cnt >= 2:
+		room["seats"][seat]["auto"] = true
+		_toast_all("%s 连续超时，已自动托管（点「取消托管」可恢复）" % str(sd["name"]))
+		_broadcast_room()
+	else:
+		_toast_all("%s 超时，已自动处理" % str(sd["name"]))
+	_run_auto(seat, true)
+
+
+func _run_auto(seat: int, timed_out: bool) -> void:
+	var a = {}
+	if timed_out and _logic.has_method("timeout_action"):
+		a = _logic.timeout_action(seat)
+	if a.is_empty():
+		a = _logic.bot_action(seat)
 	if a.is_empty():
 		return
 	var res = _logic.apply(seat, a)
+	if res != "" and timed_out:
+		a = _logic.bot_action(seat)
+		if a.is_empty():
+			return
+		res = _logic.apply(seat, a)
 	if res == "":
 		_broadcast_state()
 

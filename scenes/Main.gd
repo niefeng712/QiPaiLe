@@ -33,6 +33,9 @@ var game_view = null
 var game_view_id = ""
 var btn_again: Button
 var btn_to_room: Button
+var btn_auto: Button
+var timer_label: Label
+var _turn_ms = 0
 
 var toast_panel: PanelContainer
 var toast_label: Label
@@ -363,9 +366,14 @@ func _build_room() -> void:
 	right.add_theme_constant_override("separation", 10)
 	body.add_child(right)
 	right.add_child(_label("玩法规则", 26))
+	var rsc = ScrollContainer.new()
+	rsc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right.add_child(rsc)
 	rules_box = VBoxContainer.new()
+	rules_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rules_box.add_theme_constant_override("separation", 8)
-	right.add_child(rules_box)
+	rsc.add_child(rules_box)
 	room_desc = _label("", 18)
 	room_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	room_desc.modulate = Color(1, 1, 1, 0.8)
@@ -427,10 +435,10 @@ func _refresh_room() -> void:
 		if host and i > 0:
 			var idx = i
 			if kind != "bot":
-				row.add_child(_btn("设为电脑", func(): Net.set_seat_kind(idx, "bot")))
+				row.add_child(_btn("设为电脑", func(): Net.set_seat_kind.call_deferred(idx, "bot")))
 			if kind != "empty":
 				var t = "移出" if kind == "human" else "设为空位"
-				row.add_child(_btn(t, func(): Net.set_seat_kind(idx, "empty")))
+				row.add_child(_btn(t, func(): Net.set_seat_kind.call_deferred(idx, "empty")))
 		seats_box.add_child(row)
 
 	_clear(rules_box)
@@ -451,7 +459,7 @@ func _refresh_room() -> void:
 			if str(opts[k][0]) == cur:
 				ob.select(k)
 		ob.disabled = not host
-		ob.item_selected.connect(func(index): Net.set_rule(key, str(opts[index][0])))
+		ob.item_selected.connect(func(index): Net.set_rule.call_deferred(key, str(opts[index][0])))
 		row.add_child(ob)
 		rules_box.add_child(row)
 	start_btn.visible = host
@@ -474,6 +482,11 @@ func _build_game() -> void:
 	game_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	game_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	bar.add_child(game_status)
+	timer_label = _label("", 26)
+	timer_label.custom_minimum_size = Vector2(110, 0)
+	bar.add_child(timer_label)
+	btn_auto = _btn("托管", func(): Net.set_auto(not Net.seat_auto(Net.my_seat())))
+	bar.add_child(btn_auto)
 	btn_again = _btn("再来一局", func(): Net.start_game())
 	bar.add_child(btn_again)
 	btn_to_room = _btn("返回房间", func(): Net.back_to_room())
@@ -505,9 +518,13 @@ func _refresh_game_bar() -> void:
 	var st = Net.state
 	var g = Registry.get_game(str(Net.room.get("game_id", "")))
 	game_title.text = str(g.get("name", ""))
+	var me = Net.my_seat()
+	var is_auto = Net.seat_auto(me)
 	if game_view != null and not st.is_empty():
-		game_status.text = game_view.status_text(st, Net.my_seat(), Net.seat_names())
+		game_status.text = ("[托管中] " if is_auto else "") + game_view.status_text(st, me, Net.seat_names())
 	var over = bool(st.get("over", false))
+	btn_auto.visible = me >= 0 and not over and not st.is_empty()
+	btn_auto.text = "取消托管" if is_auto else "托管"
 	btn_again.visible = Net.is_host() and over
 	btn_to_room.visible = Net.is_host() and over
 
@@ -518,6 +535,7 @@ func _on_room_changed(room: Dictionary) -> void:
 	if bool(room.get("playing", false)):
 		if current_screen != "game":
 			_show("game")
+		_turn_ms = Time.get_ticks_msec()
 		_refresh_game_bar()
 	else:
 		if current_screen != "room":
@@ -528,10 +546,31 @@ func _on_room_changed(room: Dictionary) -> void:
 func _on_state_changed(st: Dictionary) -> void:
 	if st.is_empty():
 		return
+	_turn_ms = Time.get_ticks_msec()
 	_ensure_view(str(st.get("game_id", "")))
 	if game_view != null:
 		game_view.update_state(st, Net.my_seat(), Net.seat_names())
 	_refresh_game_bar()
+
+
+func _process(_delta: float) -> void:
+	if current_screen != "game" or timer_label == null:
+		return
+	var st = Net.state
+	var tt = int(st.get("turn_time", 0))
+	var cur = int(st.get("current_seat", -1))
+	var vis = tt > 0 and cur >= 0 and not bool(st.get("over", false))
+	if vis:
+		var seats = Net.room.get("seats", [])
+		if cur >= seats.size() or str(seats[cur]["kind"]) != "human" or bool(seats[cur].get("auto", false)):
+			vis = false
+	if not vis:
+		timer_label.text = ""
+		return
+	var left = maxi(0, int(ceil(tt - (Time.get_ticks_msec() - _turn_ms) / 1000.0)))
+	timer_label.text = "倒计时%d" % left
+	var red = cur == Net.my_seat() and left <= 5
+	timer_label.add_theme_color_override("font_color", Color("#ff6b6b") if red else Color.WHITE)
 
 
 func _on_left_room(reason: String) -> void:

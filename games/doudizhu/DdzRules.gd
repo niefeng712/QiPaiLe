@@ -1,8 +1,11 @@
 extends RefCounted
 ## 斗地主牌型规则（房主端判定 + 客户端"提示"共用，全部是静态函数）
-## 牌编号：0..51 = (点数-3)*4 + 花色，52 = 小王，53 = 大王
+## 牌编号：一副牌 0..53（0..51 = (点数-3)*4 + 花色，52 小王，53 大王）；两副牌时 54..107 是第二副
 ## 点数：3..10, J=11, Q=12, K=13, A=14, 2=15, 小王=16, 大王=17
-## 癞子：laizi > 0 时，该点数的牌可以当作 3..2 中任意点数（不能当王）
+## 癞子：laizi > 0 时，该点数的牌可以当作 3..2 中任意点数（不能当王），仅三人斗地主
+## 两副牌（四人斗地主）：炸弹 4~8 张，张数多的大；四张王是"天王炸"最大；两张同样的王算对子
+
+static var D2 = false
 
 const TYPE_NAMES = {
 	"single": "单张", "pair": "对子", "triple": "三张", "triple_1": "三带一", "triple_2": "三带二",
@@ -12,18 +15,24 @@ const TYPE_NAMES = {
 const BOMB_NAMES = {1: "软炸弹", 2: "炸弹", 3: "癞子炸弹"}
 
 
+static func set_two_decks(v: bool) -> void:
+	D2 = v
+
+
 static func card_rank(c: int) -> int:
-	if c == 52:
+	var f = c % 54
+	if f == 52:
 		return 16
-	if c == 53:
+	if f == 53:
 		return 17
-	return c / 4 + 3
+	return f / 4 + 3
 
 
 static func card_suit(c: int) -> int:
-	if c >= 52:
+	var f = c % 54
+	if f >= 52:
 		return -1
-	return c % 4
+	return f % 4
 
 
 static func rank_text(r: int) -> String:
@@ -46,18 +55,27 @@ static func rank_text(r: int) -> String:
 
 
 static func sort_hand(cards: Array) -> Array:
-	var out = cards.duplicate()
-	out.sort()
-	out.reverse()
+	var keys = []
+	for c in cards:
+		var ci = int(c)
+		keys.append(((ci % 54) * 2 + ci / 54) * 1000 + ci)
+	keys.sort()
+	keys.reverse()
+	var out = []
+	for k in keys:
+		out.append(int(k) % 1000)
 	return out
 
 
 static func describe(p: Dictionary) -> String:
 	var t = str(p.get("type", ""))
 	if t == "bomb":
-		return "%s %s" % [BOMB_NAMES.get(int(p.get("level", 2)), "炸弹"), rank_text(int(p["rank"]))]
+		var nm = str(BOMB_NAMES.get(int(p.get("level", 2)), "炸弹"))
+		if int(p.get("n", 4)) > 4:
+			nm = "%d张炸弹" % int(p["n"])
+		return "%s %s" % [nm, rank_text(int(p["rank"]))]
 	if t == "rocket":
-		return "王炸"
+		return "天王炸" if D2 else "王炸"
 	return str(TYPE_NAMES.get(t, t))
 
 
@@ -89,36 +107,40 @@ static func classify(cnt: Dictionary, n: int) -> Array:
 	if ranks.is_empty():
 		return out
 	var top = int(ranks[ranks.size() - 1])
+	var c16 = int(cnt.get(16, 0))
+	var c17 = int(cnt.get(17, 0))
 	if n == 1:
 		out.append(_pat("single", int(ranks[0]), 1, 1))
 	elif n == 2:
-		if int(cnt.get(16, 0)) == 1 and int(cnt.get(17, 0)) == 1:
+		if not D2 and c16 == 1 and c17 == 1:
 			var rk = _pat("rocket", 17, 1, 2)
 			rk["level"] = 9
 			out.append(rk)
-		elif ranks.size() == 1 and top < 16:
+		elif ranks.size() == 1 and (top < 16 or D2):
 			out.append(_pat("pair", top, 1, 2))
 	elif n == 3:
 		if ranks.size() == 1 and top < 16:
 			out.append(_pat("triple", top, 1, 3))
-	elif n == 4:
-		if ranks.size() == 1 and top < 16:
-			out.append(_pat("bomb", top, 1, 4))
-		elif ranks.size() == 2:
-			for r in ranks:
-				if int(cnt[r]) == 3 and r < 16:
-					out.append(_pat("triple_1", r, 1, 4))
-	elif n == 5:
-		if ranks.size() == 2:
-			for r in ranks:
-				var other = int(ranks[0]) if r == int(ranks[1]) else int(ranks[1])
-				if int(cnt[r]) == 3 and int(cnt[other]) == 2 and r < 16 and other < 16:
-					out.append(_pat("triple_2", r, 1, 5))
-	if n == 6:
+	if n >= 4 and ranks.size() == 1 and top < 16 and (n == 4 or (D2 and n <= 8)):
+		out.append(_pat("bomb", top, 1, n))
+	if D2 and n == 4 and c16 == 2 and c17 == 2:
+		var rk2 = _pat("rocket", 17, 1, 4)
+		rk2["level"] = 9
+		out.append(rk2)
+	if n == 4 and ranks.size() == 2:
+		for r in ranks:
+			if int(cnt[r]) == 3 and r < 16:
+				out.append(_pat("triple_1", r, 1, 4))
+	if n == 5 and ranks.size() == 2:
+		for r in ranks:
+			var other = int(ranks[0]) if r == int(ranks[1]) else int(ranks[1])
+			if int(cnt[r]) == 3 and int(cnt[other]) == 2 and r < 16 and other < 16:
+				out.append(_pat("triple_2", r, 1, 5))
+	if not D2 and n == 6:
 		for r in ranks:
 			if int(cnt[r]) == 4 and r < 16:
 				out.append(_pat("four_2", r, 1, 6))
-	if n == 8 and ranks.size() == 3:
+	if not D2 and n == 8 and ranks.size() == 3:
 		for r in ranks:
 			if int(cnt[r]) == 4 and r < 16:
 				var ok = true
@@ -240,6 +262,8 @@ static func can_beat(p: Dictionary, prev: Dictionary) -> bool:
 			return true
 		if int(p["level"]) != int(prev["level"]):
 			return int(p["level"]) > int(prev["level"])
+		if int(p["n"]) != int(prev["n"]):
+			return int(p["n"]) > int(prev["n"])
 		return int(p["rank"]) > int(prev["rank"])
 	if pt == "bomb":
 		return false
@@ -307,7 +331,7 @@ static func _kickers(g: Dictionary, excl: Array, count: int, per: int) -> Array:
 			if excl.has(r):
 				continue
 			var c = _cnt(g, r)
-			if c < per or c == 4:
+			if c < per or c >= 4:
 				continue
 			if pass_i == 0 and c != per:
 				continue
@@ -336,6 +360,15 @@ static func _dedupe_valid(lists: Array, laizi: int, prev: Dictionary) -> Array:
 	return out
 
 
+static func _rockets(g: Dictionary) -> Array:
+	var out = []
+	if not D2 and _cnt(g, 16) == 1 and _cnt(g, 17) == 1:
+		out.append([g[16][0], g[17][0]])
+	if D2 and _cnt(g, 16) == 2 and _cnt(g, 17) == 2:
+		out.append(g[16] + g[17])
+	return out
+
+
 static func follow_candidates(hand: Array, laizi: int, prev: Dictionary) -> Array:
 	var g = groups_of(hand)
 	var cands = []
@@ -349,7 +382,7 @@ static func follow_candidates(hand: Array, laizi: int, prev: Dictionary) -> Arra
 					cands.append([g[r][0]])
 	elif t == "pair":
 		for want in [2, 3]:
-			for r in range(pr + 1, 16):
+			for r in range(pr + 1, 18 if D2 else 16):
 				if _cnt(g, r) == want:
 					cands.append(g[r].slice(0, 2))
 	elif t == "triple" or t == "triple_1" or t == "triple_2":
@@ -410,8 +443,9 @@ static func follow_candidates(hand: Array, laizi: int, prev: Dictionary) -> Arra
 	var bombs = []
 	if t != "rocket":
 		for r in range(3, 16):
-			if _cnt(g, r) == 4:
-				bombs.append(g[r].duplicate())
+			var c = _cnt(g, r)
+			for sz in range(4, c + 1):
+				bombs.append(g[r].slice(0, sz))
 		if not lz.is_empty():
 			for r in range(3, 16):
 				if r == laizi:
@@ -419,8 +453,7 @@ static func follow_candidates(hand: Array, laizi: int, prev: Dictionary) -> Arra
 				var nat2 = _cnt(g, r)
 				if nat2 >= 1 and nat2 < 4 and nat2 + lz.size() >= 4:
 					bombs.append(g[r] + lz.slice(0, 4 - nat2))
-		if _cnt(g, 16) == 1 and _cnt(g, 17) == 1:
-			bombs.append([g[16][0], g[17][0]])
+		bombs += _rockets(g)
 	return _dedupe_valid(cands + bombs, laizi, prev)
 
 
@@ -479,10 +512,9 @@ static func lead_options(hand: Array, laizi: int) -> Array:
 		if c >= 2:
 			opts.append([g[r][0]])
 	for r in range(3, 16):
-		if _cnt(g, r) == 4:
+		if _cnt(g, r) >= 4:
 			opts.append(g[r].duplicate())
-	if _cnt(g, 16) == 1 and _cnt(g, 17) == 1:
-		opts.append([g[16][0], g[17][0]])
+	opts += _rockets(g)
 	var out = _dedupe_valid(opts, laizi, {})
 	if out.is_empty() and not hand.is_empty():
 		var sh = sort_hand(hand)

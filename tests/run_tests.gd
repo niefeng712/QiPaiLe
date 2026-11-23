@@ -20,15 +20,23 @@ func _init() -> void:
 	failures += _test_ludo_bots([0, 2], {"takeoff": "56", "jump": "off", "over": "free"}, 1)
 	failures += _test_ludo_bots([1, 2, 3], {"takeoff": "6", "jump": "on", "over": "free"}, 2)
 	failures += _test_ddz_rules()
+	failures += _test_ddz2_rules()
 	var modes = [
-		{"deal": "shuffle", "laizi": "off", "cap": "none"},
-		{"deal": "noshuffle", "laizi": "off", "cap": "none"},
-		{"deal": "shuffle", "laizi": "on", "cap": "32"},
-		{"deal": "noshuffle", "laizi": "on", "cap": "16"},
+		{"players": "3", "deal": "shuffle", "laizi": "off", "cap": "none", "bidmode": "score", "double": "off", "mingpai": "off"},
+		{"players": "3", "deal": "noshuffle", "laizi": "off", "cap": "none", "bidmode": "rob", "double": "on", "mingpai": "on"},
+		{"players": "3", "deal": "shuffle", "laizi": "on", "cap": "32", "bidmode": "rob", "double": "on", "mingpai": "off"},
+		{"players": "3", "deal": "noshuffle", "laizi": "on", "cap": "16", "bidmode": "score", "double": "on", "mingpai": "on"},
+		{"players": "4", "deal": "shuffle", "laizi": "off", "cap": "none", "bidmode": "score", "double": "on", "mingpai": "on"},
+		{"players": "4", "deal": "noshuffle", "laizi": "off", "cap": "64", "bidmode": "rob", "double": "on", "mingpai": "on"},
+		{"players": "4", "deal": "shuffle", "laizi": "off", "cap": "none", "bidmode": "rob", "double": "off", "mingpai": "off"},
 	]
 	for m in modes:
 		for i in 4:
-			failures += _test_ddz_bots(m, i + 1)
+			failures += _test_ddz_bots(m, i + 1, false)
+	failures += _test_ddz_bots(modes[1], 1, true)
+	failures += _test_ddz_bots(modes[3], 2, true)
+	failures += _test_ddz_bots(modes[5], 3, true)
+	failures += _test_ddz_bots(modes[4], 4, true)
 	if failures == 0:
 		print("ALL TESTS PASSED")
 	else:
@@ -135,6 +143,7 @@ func _expect(cond: bool, msg: String) -> int:
 
 
 func _test_ddz_rules() -> int:
+	DdzRules.set_two_decks(false)
 	var f = 0
 	f += _expect(_type_of([_c(3, 0)], 0) == "single", "single")
 	f += _expect(_type_of([_c(5, 0), _c(5, 1)], 0) == "pair", "pair")
@@ -170,36 +179,69 @@ func _test_ddz_rules() -> int:
 	return f
 
 
-func _test_ddz_bots(rules: Dictionary, round_no: int) -> int:
+func _test_ddz2_rules() -> int:
+	DdzRules.set_two_decks(true)
+	var f = 0
+	var b4 = DdzRules.choose_pattern([_c(14, 0), _c(14, 1), _c(14, 2), _c(14, 3)], 0, {})
+	var b5 = DdzRules.choose_pattern([_c(5, 0), _c(5, 1), _c(5, 2), _c(5, 3), _c(5, 0) + 54], 0, {})
+	f += _expect(str(b5.get("type", "")) == "bomb" and int(b5["n"]) == 5, "5-card bomb")
+	f += _expect(DdzRules.can_beat(b5, b4), "5-card bomb beats 4-card bomb")
+	f += _expect(not DdzRules.can_beat(b4, b5), "4-card bomb can't beat 5-card bomb")
+	var jj = DdzRules.choose_pattern([52, 53, 106, 107], 0, {})
+	f += _expect(str(jj.get("type", "")) == "rocket" and DdzRules.can_beat(jj, b5), "four jokers")
+	f += _expect(_type_of([53, 107], 0) == "pair", "pair of big jokers")
+	f += _expect(_type_of([52, 53], 0) == "none", "mixed jokers invalid with two decks")
+	var hints = DdzRules.follow_candidates([_c(9, 0), _c(9, 1), _c(9, 2), _c(9, 3), _c(9, 0) + 54, _c(3, 0)], 0, b4)
+	f += _expect(hints.size() >= 1, "two-deck bomb hint")
+	var sorted = DdzRules.sort_hand([_c(3, 0), _c(3, 0) + 54, 53, _c(15, 1) + 54])
+	f += _expect(int(sorted[0]) == 53 and DdzRules.card_rank(int(sorted[3])) == 3, "two-deck sort")
+	DdzRules.set_two_decks(false)
+	if f == 0:
+		print("doudizhu two-deck rules ok")
+	return f
+
+
+func _test_ddz_bots(rules: Dictionary, round_no: int, timeout0: bool) -> int:
 	var lg = DdzLogic.new()
-	lg.setup([0, 1, 2], rules, round_no)
+	var nn = 4 if str(rules.get("players", "3")) == "4" else 3
+	var seats = []
+	for i in nn:
+		seats.append(i)
+	lg.setup(seats, rules, round_no)
 	var steps = 0
 	var t0 = Time.get_ticks_msec()
-	while not lg.is_over() and steps < 2000:
+	var phases = {}
+	while not lg.is_over() and steps < 4000:
 		var seat = lg.current_seat()
-		var a = lg.bot_action(seat)
+		phases[lg.phase] = true
+		if lg.phase == "ming" and not lg.ming_done[seat]:
+			if not lg.get_state_for(seat)["my_hand"].is_empty():
+				return _fail("ddz hand visible before ming decision")
+		var a = lg.timeout_action(seat) if (timeout0 and seat == 0) else lg.bot_action(seat)
 		if a.is_empty():
-			return _fail("ddz bot empty action")
+			return _fail("ddz bot empty action (phase %s)" % lg.phase)
 		var err = lg.apply(seat, a)
 		if err != "":
-			return _fail("ddz bot illegal action %s: %s (phase %s)" % [str(a), err, lg.phase])
+			return _fail("ddz illegal action %s: %s (phase %s)" % [str(a), err, lg.phase])
 		var total = lg.played_cards
-		for s in 3:
+		for s in nn:
 			total += lg.hands[s].size()
 		if lg.landlord < 0:
 			total += lg.bottom.size()
-		if total != 54:
+		if total != 54 * lg.decks:
 			return _fail("ddz card count %d" % total)
 		steps += 1
 	if not lg.is_over():
-		return _fail("ddz bots never finished")
+		return _fail("ddz never finished")
 	var sum = 0
 	for v in lg.round_scores():
 		sum += int(v)
-	if sum != 0:
+	if sum != 0 or lg.round_scores().size() != nn:
 		return _fail("ddz scores not zero-sum")
-	var st = lg.get_state_for(0)
-	if st["my_hand"].size() != lg.hands[0].size():
-		return _fail("ddz state hand mismatch")
-	print("ddz %s round %d: %d actions, landlord seat %d, bombs %d, x%d, scores %s, laizi %d, %dms" % [str(rules), round_no, steps, lg.landlord, lg.bombs, lg.final_mult, str(lg.round_scores()), lg.laizi, Time.get_ticks_msec() - t0])
+	var played = 0
+	for v in lg.played_rank:
+		played += int(v)
+	if played != lg.played_cards:
+		return _fail("ddz card counter mismatch")
+	print("ddz %dp %s/%s dbl=%s ming=%s laizi=%s r%d%s: %d actions, landlord %d, bombs %d, robs %d, ming x%d, doubles %s, mult x%d, scores %s, %dms" % [nn, str(rules.get("deal")), str(rules.get("bidmode")), str(rules.get("double")), str(rules.get("mingpai")), str(rules.get("laizi")), round_no, " (seat0 timeouts)" if timeout0 else "", steps, lg.landlord, lg.bombs, lg.robs, lg.ming_mult, str(lg.doubles), lg.final_mult, str(lg.round_scores()), Time.get_ticks_msec() - t0])
 	return 0

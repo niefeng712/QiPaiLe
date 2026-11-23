@@ -43,14 +43,52 @@ const GAMES = [
 		"ready": true,
 		"seats": 3,
 		"min_players": 3,
-		"desc": "3人，叫分1~3分抢地主，地主多拿3张底牌，一打二。炸弹、王炸翻倍，春天/反春翻倍。可选经典洗牌、不洗牌（炸弹多）、癞子玩法；人不够时自动补电脑。",
+		"desc": "3人，一副牌。叫地主/抢地主或叫分，地主多拿3张底牌，一打二。可选明牌、加倍、记牌器、出牌倒计时；经典洗牌、不洗牌（炸弹多）、癞子玩法。炸弹、王炸、春天翻倍；人不够自动补电脑。",
 		"logic": "res://games/doudizhu/DoudizhuLogic.gd",
 		"view": "res://games/doudizhu/DoudizhuView.gd",
+		"fixed": {"players": "3"},
 		"rules": [
 			{"key": "deal", "label": "发牌方式", "default": "shuffle",
 				"options": [["shuffle", "经典（洗牌）"], ["noshuffle", "不洗牌（炸弹多）"]]},
 			{"key": "laizi", "label": "癞子", "default": "off",
 				"options": [["off", "不用癞子"], ["on", "癞子玩法（随机一个点数当万能牌）"]]},
+			{"key": "bidmode", "label": "叫地主方式", "default": "rob",
+				"options": [["rob", "叫地主 / 抢地主（每抢×2）"], ["score", "叫分（1~3分）"]]},
+			{"key": "double", "label": "加倍", "default": "on",
+				"options": [["on", "开启（农民×2，地主可超级加倍×4）"], ["off", "关闭"]]},
+			{"key": "mingpai", "label": "明牌", "default": "on",
+				"options": [["on", "开启（明牌开始×5，地主明牌×2）"], ["off", "关闭"]]},
+			{"key": "counter", "label": "记牌器", "default": "on",
+				"options": [["on", "开启"], ["off", "关闭"]]},
+			{"key": "timer", "label": "出牌倒计时", "default": "20",
+				"options": [["20", "20秒"], ["15", "15秒"], ["30", "30秒"], ["off", "不限时"]]},
+			{"key": "cap", "label": "封顶倍数", "default": "none",
+				"options": [["none", "不封顶"], ["16", "16倍"], ["32", "32倍"], ["64", "64倍"]]},
+		],
+	},
+	{
+		"id": "doudizhu4",
+		"name": "四人斗地主",
+		"ready": true,
+		"seats": 4,
+		"min_players": 4,
+		"desc": "4人，两副牌（108张），每人25张，地主多拿8张底牌，一个地主打三个农民。炸弹4~8张，张数多的大；四张王是天王炸最大；两张同样的王算对子。人不够自动补电脑。",
+		"logic": "res://games/doudizhu/DoudizhuLogic.gd",
+		"view": "res://games/doudizhu/DoudizhuView.gd",
+		"fixed": {"players": "4", "laizi": "off"},
+		"rules": [
+			{"key": "deal", "label": "发牌方式", "default": "shuffle",
+				"options": [["shuffle", "经典（洗牌）"], ["noshuffle", "不洗牌（炸弹多）"]]},
+			{"key": "bidmode", "label": "叫地主方式", "default": "rob",
+				"options": [["rob", "叫地主 / 抢地主（每抢×2）"], ["score", "叫分（1~3分）"]]},
+			{"key": "double", "label": "加倍", "default": "on",
+				"options": [["on", "开启（农民×2，地主可超级加倍×4）"], ["off", "关闭"]]},
+			{"key": "mingpai", "label": "明牌", "default": "on",
+				"options": [["on", "开启（明牌开始×5，地主明牌×2）"], ["off", "关闭"]]},
+			{"key": "counter", "label": "记牌器", "default": "on",
+				"options": [["on", "开启"], ["off", "关闭"]]},
+			{"key": "timer", "label": "出牌倒计时", "default": "20",
+				"options": [["20", "20秒"], ["15", "15秒"], ["30", "30秒"], ["off", "不限时"]]},
 			{"key": "cap", "label": "封顶倍数", "default": "none",
 				"options": [["none", "不封顶"], ["16", "16倍"], ["32", "32倍"], ["64", "64倍"]]},
 		],
@@ -76,4 +114,7 @@ static func default_rules(id: String) -> Dictionary:
 	var g = get_game(id)
 	for r in g.get("rules", []):
 		out[str(r["key"])] = str(r["default"])
+	var fixed = g.get("fixed", {})
+	for k in fixed:
+		out[str(k)] = str(fixed[k])
 	return out
