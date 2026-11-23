@@ -14,6 +14,7 @@ config/quit_on_go_back=false
 [autoload]
 
 Net="*res://core/Net.gd"
+Sfx="*res://core/Sfx.gd"
 
 [display]
 

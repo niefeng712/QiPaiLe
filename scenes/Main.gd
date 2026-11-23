@@ -37,12 +37,23 @@ var btn_auto: Button
 var timer_label: Label
 var _turn_ms = 0
 
+var sfx_toggle: CheckButton
+var chat_popup: PopupPanel
+var chat_edit: LineEdit
+var chat_box: VBoxContainer
+var _last_round = -1
+var _last_over = false
+var _last_cur = -2
+var _last_event = ""
+var _last_tick = -1
+
 var toast_panel: PanelContainer
 var toast_label: Label
 var _toast_token = 0
 
 
 func _ready() -> void:
+	get_tree().node_added.connect(_on_node_added)
 	_setup_theme()
 	var bg = ColorRect.new()
 	bg.color = Color("#1f5e3b")
@@ -53,6 +64,8 @@ func _ready() -> void:
 	_build_room()
 	_build_game()
 	_build_toast()
+	_build_chat()
+	Net.chat_received.connect(_on_chat)
 	Net.rooms_updated.connect(_on_rooms_updated)
 	Net.room_changed.connect(_on_room_changed)
 	Net.state_changed.connect(_on_state_changed)
@@ -156,6 +169,11 @@ func _build_hall() -> void:
 	var sp = Control.new()
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(sp)
+	sfx_toggle = CheckButton.new()
+	sfx_toggle.text = "音效"
+	sfx_toggle.button_pressed = true
+	sfx_toggle.toggled.connect(_on_sfx_toggled)
+	top.add_child(sfx_toggle)
 	top.add_child(_label("昵称：", 22))
 	name_edit = LineEdit.new()
 	name_edit.custom_minimum_size = Vector2(200, 50)
@@ -317,6 +335,7 @@ func _load_settings() -> void:
 	var nm = ""
 	if cf.load(SETTINGS_PATH) == OK:
 		nm = str(cf.get_value("player", "name", ""))
+		Sfx.enabled = bool(cf.get_value("player", "sfx", true))
 		var g = str(cf.get_value("player", "game", "gomoku"))
 		var info = Registry.get_game(g)
 		if not info.is_empty() and bool(info.get("ready", false)):
@@ -325,6 +344,7 @@ func _load_settings() -> void:
 		nm = "玩家%d" % (randi() % 900 + 100)
 	name_edit.text = nm
 	Net.player_name = nm
+	sfx_toggle.set_pressed_no_signal(Sfx.enabled)
 
 
 func _save_settings() -> void:
@@ -333,6 +353,7 @@ func _save_settings() -> void:
 	var cf = ConfigFile.new()
 	cf.set_value("player", "name", Net.player_name)
 	cf.set_value("player", "game", selected_game)
+	cf.set_value("player", "sfx", Sfx.enabled)
 	cf.save(SETTINGS_PATH)
 
 
@@ -387,6 +408,9 @@ func _build_room() -> void:
 	var lb = _btn("离开房间", func(): Net.leave_room())
 	lb.custom_minimum_size = Vector2(200, 64)
 	bar.add_child(lb)
+	var cb = _btn("快捷聊天", _open_chat)
+	cb.custom_minimum_size = Vector2(170, 64)
+	bar.add_child(cb)
 
 
 func _refresh_room() -> void:
@@ -487,6 +511,7 @@ func _build_game() -> void:
 	bar.add_child(timer_label)
 	btn_auto = _btn("托管", func(): Net.set_auto(not Net.seat_auto(Net.my_seat())))
 	bar.add_child(btn_auto)
+	bar.add_child(_btn("聊天", _open_chat))
 	btn_again = _btn("再来一局", func(): Net.start_game())
 	bar.add_child(btn_again)
 	btn_to_room = _btn("返回房间", func(): Net.back_to_room())
@@ -546,6 +571,7 @@ func _on_room_changed(room: Dictionary) -> void:
 func _on_state_changed(st: Dictionary) -> void:
 	if st.is_empty():
 		return
+	_play_state_sound(st)
 	_turn_ms = Time.get_ticks_msec()
 	_ensure_view(str(st.get("game_id", "")))
 	if game_view != null:
@@ -570,7 +596,143 @@ func _process(_delta: float) -> void:
 	var left = maxi(0, int(ceil(tt - (Time.get_ticks_msec() - _turn_ms) / 1000.0)))
 	timer_label.text = "倒计时%d" % left
 	var red = cur == Net.my_seat() and left <= 5
+	if red and left > 0 and left != _last_tick:
+		Sfx.play("tick")
+	_last_tick = left
 	timer_label.add_theme_color_override("font_color", Color("#ff6b6b") if red else Color.WHITE)
+
+
+# ---------------------------------------------------------------- 音效 / 快捷聊天
+
+func _on_node_added(n: Node) -> void:
+	if n is BaseButton and not (n is CheckButton):
+		n.pressed.connect(func(): Sfx.play("click"))
+
+
+func _on_sfx_toggled(on: bool) -> void:
+	Sfx.enabled = on
+	_save_settings()
+	if on:
+		Sfx.play("start")
+
+
+func _play_state_sound(st: Dictionary) -> void:
+	var rd = int(st.get("round", 0))
+	var over = bool(st.get("over", false))
+	var cur = int(st.get("current_seat", -1))
+	var me = Net.my_seat()
+	var ev = str(st.get("event", ""))
+	if rd != _last_round:
+		_last_round = rd
+		_last_over = over
+		_last_cur = cur
+		_last_event = ev
+		Sfx.play("turn" if cur == me and me >= 0 else "start")
+		return
+	if over and not _last_over:
+		var w = st.get("winners", [])
+		if me >= 0 and w.has(me):
+			Sfx.play("win")
+		elif me >= 0 and not w.is_empty():
+			Sfx.play("lose")
+		else:
+			Sfx.play("end")
+		_on_game_finished(st)
+	elif not over and cur == me and me >= 0 and _last_cur != me:
+		Sfx.play("turn")
+	elif ev != _last_event:
+		Sfx.play("card")
+	_last_over = over
+	_last_cur = cur
+	_last_event = ev
+
+
+func _on_game_finished(_st: Dictionary) -> void:
+	pass
+
+
+func _build_chat() -> void:
+	chat_box = VBoxContainer.new()
+	chat_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chat_box.anchor_left = 1.0
+	chat_box.anchor_right = 1.0
+	chat_box.offset_left = -470
+	chat_box.offset_right = -16
+	chat_box.offset_top = 86
+	chat_box.offset_bottom = 420
+	chat_box.add_theme_constant_override("separation", 6)
+	add_child(chat_box)
+	chat_popup = PopupPanel.new()
+	var v = VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	chat_popup.add_child(v)
+	v.add_child(_label("快捷聊天", 24))
+	var grid = GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	v.add_child(grid)
+	for ph in Net.CHAT_PHRASES:
+		var t = str(ph)
+		var b = _btn(t, func(): _send_chat.call_deferred(t))
+		b.custom_minimum_size = Vector2(320, 48)
+		b.add_theme_font_size_override("font_size", 18)
+		grid.add_child(b)
+	var row = HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	v.add_child(row)
+	chat_edit = LineEdit.new()
+	chat_edit.placeholder_text = "自己输入（最多30个字）"
+	chat_edit.max_length = 30
+	chat_edit.custom_minimum_size = Vector2(0, 50)
+	chat_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chat_edit.text_submitted.connect(func(t): _send_chat(t))
+	row.add_child(chat_edit)
+	row.add_child(_btn("发送", func(): _send_chat.call_deferred(chat_edit.text)))
+	add_child(chat_popup)
+
+
+func _open_chat() -> void:
+	if Net.mode == "none":
+		return
+	chat_popup.popup_centered(Vector2i(680, 0))
+
+
+func _send_chat(t: String) -> void:
+	t = t.strip_edges()
+	if t == "":
+		return
+	Net.send_chat(t)
+	chat_edit.text = ""
+	chat_popup.hide()
+
+
+func _on_chat(_seat: int, sender: String, text: String) -> void:
+	Sfx.play("chat")
+	var p = PanelContainer.new()
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb = StyleBoxFlat.new()
+	sb.bg_color = Color(0.05, 0.1, 0.08, 0.82)
+	sb.border_color = Color("#ffe066")
+	sb.border_width_left = 4
+	sb.set_corner_radius_all(10)
+	sb.content_margin_left = 12
+	sb.content_margin_right = 12
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 6
+	p.add_theme_stylebox_override("panel", sb)
+	var l = _label("%s：%s" % [sender, text], 20)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	p.add_child(l)
+	chat_box.add_child(p)
+	while chat_box.get_child_count() > 5:
+		var old = chat_box.get_child(0)
+		chat_box.remove_child(old)
+		old.queue_free()
+	await get_tree().create_timer(6.0).timeout
+	if is_instance_valid(p):
+		p.queue_free()
 
 
 func _on_left_room(reason: String) -> void:
@@ -629,6 +791,12 @@ func _run_selftest() -> void:
 			get_tree().quit(1)
 			return
 		print("SELFTEST status: ", game_status.text)
+		Net.send_chat("再来一局！")
+		await get_tree().create_timer(0.2).timeout
+		if chat_box.get_child_count() == 0:
+			printerr("SELFTEST FAIL: chat message not shown for ", gid)
+			get_tree().quit(1)
+			return
 		Net.leave_room()
 		await get_tree().create_timer(0.3).timeout
 	if Net.host_room("ludo", Registry.default_rules("ludo"), false):
@@ -636,5 +804,12 @@ func _run_selftest() -> void:
 		await get_tree().create_timer(1.5).timeout
 		print("SELFTEST lan host ok, ips: ", Net.local_ipv4())
 		Net.leave_room()
+	for snd in ["click", "card", "turn", "win", "lose", "chat", "tick", "start", "end"]:
+		if not Sfx.has_sound(snd):
+			printerr("SELFTEST FAIL: missing sound ", snd)
+			get_tree().quit(1)
+			return
+		Sfx.play(snd)
+	print("SELFTEST sounds ok")
 	print("SELFTEST OK")
 	get_tree().quit(0)

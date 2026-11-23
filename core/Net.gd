@@ -18,6 +18,24 @@ signal room_changed(new_room)
 signal state_changed(new_state)
 signal toast(text)
 signal left_room(reason)
+signal chat_received(seat, sender_name, text)
+
+const CHAT_PHRASES = [
+	"大家好，很高兴见到各位！",
+	"快点吧，我等得花儿都谢了！",
+	"你的牌打得也太好了！",
+	"不要走，决战到天亮！",
+	"和你合作真是太愉快了！",
+	"不好意思，我要离开一会儿",
+	"又断线了，网络怎么这么差",
+	"厉害厉害，佩服佩服！",
+	"风水轮流转，下一局到我了",
+	"再来一局！",
+	"承让承让～",
+	"谢谢老板！",
+]
+const BOT_WIN_PHRASES = ["承让承让～", "谢谢老板！", "这把手气不错", "厉害吧，再来一局！"]
+const BOT_LOSE_PHRASES = ["风水轮流转，下一局到我了", "你的牌打得也太好了！", "再来一局！", "厉害厉害，佩服佩服！"]
 
 var mode = "none"  # none / offline / host / client
 var my_peer = 0
@@ -29,6 +47,7 @@ var _logic = null
 var _round = 0
 var _tallied = false
 var _timeouts = {}
+var _chat_ms = {}
 var _bot_token = 0
 var _enet = null
 var _reject_reason = ""
@@ -336,6 +355,10 @@ func back_to_room() -> void:
 	send({"t": "to_room"})
 
 
+func send_chat(text: String) -> void:
+	send({"t": "chat", "text": text})
+
+
 func set_auto(on: bool) -> void:
 	send({"t": "auto", "on": on})
 
@@ -403,6 +426,7 @@ func _maybe_tally() -> void:
 	if _logic == null or _tallied or not _logic.is_over():
 		return
 	_tallied = true
+	_bot_chat_after_game()
 	if _logic.has_method("carry_out"):
 		# 跨局累计的比赛进度（例如升级的级数、下一局庄家）
 		room["carry"] = _logic.carry_out()
@@ -441,6 +465,8 @@ func _client_handle(msg: Dictionary) -> void:
 	elif t == "reject":
 		_reject_reason = str(msg["reason"])
 		toast.emit(_reject_reason)
+	elif t == "chat":
+		chat_received.emit(int(msg.get("seat", -1)), str(msg.get("name", "")), str(msg.get("text", "")))
 
 
 # ---------------------------------------------------------------- 房主处理
@@ -455,6 +481,8 @@ func _host_handle(sender: int, msg: Dictionary) -> void:
 		_h_action(sender, msg.get("a", {}))
 	elif t == "auto":
 		_h_auto(sender, bool(msg.get("on", false)))
+	elif t == "chat":
+		_h_chat(sender, str(msg.get("text", "")))
 	elif t == "seat" and sender == 1:
 		_h_seat(int(msg.get("seat", -1)), str(msg.get("kind", "")))
 	elif t == "rule" and sender == 1:
@@ -601,6 +629,42 @@ func _h_action(sender: int, a) -> void:
 		return
 	_timeouts.erase(seat)
 	_broadcast_state()
+
+
+func _h_chat(sender: int, text: String) -> void:
+	var now = Time.get_ticks_msec()
+	if now - int(_chat_ms.get(sender, -10000)) < 800:
+		return
+	_chat_ms[sender] = now
+	text = text.strip_edges().replace("\n", " ").substr(0, 30)
+	if text == "":
+		return
+	var seat = _seat_of_peer(sender)
+	var nm = str(room["seats"][seat]["name"]) if seat >= 0 else "观众"
+	_to_all({"t": "chat", "seat": seat, "name": nm, "text": text})
+
+
+func _bot_chat_after_game() -> void:
+	## 一局结束后，电脑偶尔说一句话
+	if _logic == null or randf() > 0.6:
+		return
+	var st = _logic.get_state()
+	var w = st.get("winners", [])
+	var bots = []
+	var seats = room.get("seats", [])
+	for i in seats.size():
+		if str(seats[i]["kind"]) == "bot" and str(seats[i].get("away", "")) == "":
+			bots.append(i)
+	if bots.is_empty():
+		return
+	var i = int(bots[randi() % bots.size()])
+	var pool = BOT_WIN_PHRASES if w.has(i) else BOT_LOSE_PHRASES
+	var text = str(pool[randi() % pool.size()])
+	var r = _round
+	await get_tree().create_timer(1.3).timeout
+	if r != _round or room.is_empty() or i >= room["seats"].size():
+		return
+	_to_all({"t": "chat", "seat": i, "name": str(room["seats"][i]["name"]), "text": text})
 
 
 func _h_auto(sender: int, on: bool) -> void:
