@@ -1,0 +1,30 @@
+; 棋牌乐 Godot 4 工程配置
+config_version=5
+
+[application]
+
+config/name="棋牌乐"
+config/description="局域网棋牌合集：单机 + 同WiFi联机"
+config/version="0.1.0"
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+config/icon="res://icon.svg"
+config/quit_on_go_back=false
+
+[autoload]
+
+Net="*res://core/Net.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=4
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true

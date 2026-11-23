@@ -1,0 +1,134 @@
+name: 构建棋牌乐
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: "4.3"
+
+jobs:
+  build:
+    name: 检查 + 打包（Windows / Android）
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:4.3
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 准备导出模板和安卓环境
+        run: |
+          set -e
+          echo "HOME=$HOME"
+          mkdir -p "$HOME/.local/share/godot/export_templates" "$HOME/.config/godot"
+          TPL="${GODOT_VERSION}.stable"
+          if [ "$HOME" != "/root" ] && [ -d "/root/.local/share/godot/export_templates/$TPL" ]; then
+            rm -rf "$HOME/.local/share/godot/export_templates/$TPL"
+            cp -r "/root/.local/share/godot/export_templates/$TPL" "$HOME/.local/share/godot/export_templates/"
+          fi
+          ls "$HOME/.local/share/godot/export_templates/$TPL"
+          JAVA_DIR=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
+          SDK_DIR="${ANDROID_HOME:-/usr/lib/android-sdk}"
+          echo "JAVA_DIR=$JAVA_DIR  SDK_DIR=$SDK_DIR"
+          keytool -genkeypair -keystore "$HOME/debug.keystore" -storepass android -alias androiddebugkey \
+            -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" -noprompt
+          for f in editor_settings-4.tres editor_settings-4.3.tres; do
+            {
+              echo '[gd_resource type="EditorSettings" format=3]'
+              echo ''
+              echo '[resource]'
+              echo "export/android/android_sdk_path = \"$SDK_DIR\""
+              echo "export/android/java_sdk_path = \"$JAVA_DIR\""
+              echo "export/android/debug_keystore = \"$HOME/debug.keystore\""
+              echo 'export/android/debug_keystore_user = "androiddebugkey"'
+              echo 'export/android/debug_keystore_pass = "android"'
+            } > "$HOME/.config/godot/$f"
+          done
+
+      - name: 设置版本号
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then VER="${GITHUB_REF#refs/tags/}"; else VER="dev-${GITHUB_RUN_NUMBER}"; fi
+          NAME="${VER#v}"
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          sed -i "s/^version\/code=.*/version\/code=${GITHUB_RUN_NUMBER}/" export_presets.cfg
+          sed -i "s/^version\/name=.*/version\/name=\"${NAME}\"/" export_presets.cfg
+          sed -i "s/^config\/version=.*/config\/version=\"${NAME}\"/" project.godot
+          grep -E "^version/" export_presets.cfg
+
+      - name: 导入资源
+        run: |
+          timeout 300 godot --headless --import 2>&1 | tail -20 || true
+          timeout 300 godot --headless --editor --quit 2>&1 | tail -20 || true
+
+      - name: 规则测试（电脑对电脑整局模拟）
+        run: |
+          timeout 300 godot --headless --script res://tests/run_tests.gd 2>&1 | tee tests.log || true
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" tests.log; then echo "::error::脚本报错"; exit 1; fi
+          grep -q "ALL TESTS PASSED" tests.log
+
+      - name: 界面自检（单机两款游戏 + 局域网建房）
+        run: |
+          timeout 300 godot --headless -- --selftest 2>&1 | tee smoke.log || true
+          if grep -E "SCRIPT ERROR|Parse Error|Compile Error|Failed to load script" smoke.log; then echo "::error::脚本报错"; exit 1; fi
+          grep -q "SELFTEST OK" smoke.log
+
+      - name: 导出 Windows
+        run: |
+          mkdir -p build/windows build/android dist
+          godot --headless --export-release "Windows Desktop" build/windows/QiPaiLe.exe 2>&1 | tail -30
+          test -f build/windows/QiPaiLe.exe
+
+      - name: 导出 Android
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$HOME/release.keystore"
+            export GODOT_ANDROID_KEYSTORE_RELEASE_PATH="$HOME/release.keystore"
+            export GODOT_ANDROID_KEYSTORE_RELEASE_USER="$KS_ALIAS"
+            export GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD="$KS_PASS"
+            echo "使用固定签名导出正式版"
+            godot --headless --export-release "Android" build/android/QiPaiLe.apk 2>&1 | tail -40
+          else
+            echo "未配置签名，导出调试版"
+            export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$HOME/debug.keystore"
+            export GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey"
+            export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android"
+            godot --headless --export-debug "Android" build/android/QiPaiLe.apk 2>&1 | tail -40
+          fi
+          test -f build/android/QiPaiLe.apk
+
+      - name: 整理安装包
+        run: |
+          cp build/windows/QiPaiLe.exe "dist/QiPaiLe-Windows-${VER}.exe"
+          cp build/android/QiPaiLe.apk "dist/QiPaiLe-Android-${VER}.apk"
+          ls -la dist
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: QiPaiLe-${{ env.VER }}
+          path: dist/*
+
+      - name: 发布到 Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: 棋牌乐 ${{ env.VER }}
+          files: dist/*
+          body: |
+            ## 棋牌乐 ${{ env.VER }}
+            - **Windows**：下载 `QiPaiLe-Windows-${{ env.VER }}.exe`，双击即可运行（免安装）。首次运行请在防火墙弹窗中允许“专用网络”。
+            - **Android 手机/平板**：下载 `QiPaiLe-Android-${{ env.VER }}.apk` 安装。
+            - 联机：所有设备连同一个 WiFi，一台点「创建局域网房间」，其他设备在大厅自动看到房间并加入；也可以输入房主 IP 加入。

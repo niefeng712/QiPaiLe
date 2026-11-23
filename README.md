@@ -1,2 +1,61 @@
-# QiPaiLe
-棋牌乐 · LAN board &amp; card game hall (single-player + same-WiFi multiplayer, Windows + Android)
+# 棋牌乐
+
+单机 + 同 WiFi 局域网联机的棋牌合集，仿 QQ 游戏大厅。用 **Godot 4** 开发，GitHub Actions 自动打包 **Windows `.exe`** 和 **Android `.apk`**，电脑和手机/平板可以在同一个 WiFi 下互通联机。
+
+## 下载
+
+到 [Releases](../../releases) 页面下载最新版：
+
+| 设备 | 文件 | 说明 |
+| --- | --- | --- |
+| Windows 电脑 | `QiPaiLe-Windows-版本号.exe` | 免安装，双击运行。首次运行时请在防火墙弹窗中允许“专用网络” |
+| Android 手机/平板 | `QiPaiLe-Android-版本号.apk` | 直接安装，横屏显示 |
+
+## 怎么玩
+
+- **单机**：在大厅选好游戏，点「单机游戏（和电脑玩）」，空位会自动由电脑补齐。
+- **局域网联机**：所有设备连同一个 WiFi。一台点「创建局域网房间」，其他设备打开棋牌乐，大厅右侧会自动出现这个房间，点「加入」即可。找不到房间时，也可以输入房主的 IP 加入（房主 IP 显示在房间页面）。
+- 房主可以把空位设为电脑、调整玩法规则，然后点「开始游戏」。
+- 游戏中有人掉线，会由电脑临时托管；用同一个昵称重新加入就能接着玩。
+
+## 游戏进度
+
+| 游戏 | 状态 | 玩法 |
+| --- | --- | --- |
+| 五子棋 | ✅ 已上线 | 无禁手，执黑先手可选每局轮换 / 固定 / 随机 |
+| 飞行棋 | ✅ 已上线 | 2～4 人；起飞点数（仅6 / 5或6）、同色跳跃、终点回弹可选 |
+| 斗地主 | 第二阶段 | 经典 / 不洗牌 / 癞子 |
+| 升级拖拉机 | 第二阶段 | 双副牌 |
+| 中国跳棋 | 第三阶段 | 2/3/4/6 人 |
+| 麻将 | 第三阶段 | 通用引擎 + 各地规则（血战到底、推倒胡、国标…） |
+| 中国象棋、四国军棋、连连看 | 后续 | |
+
+## 技术结构
+
+```
+core/
+  Net.gd           局域网核心：UDP 广播找房、ENet 联机、房间座位、电脑补位、掉线托管
+  GameRegistry.gd  游戏注册表（大厅里显示哪些游戏、每个游戏的玩法开关）
+scenes/
+  Main.gd          大厅 / 房间 / 游戏界面（全部代码生成）
+games/
+  gomoku/          五子棋：GomokuLogic.gd（规则 + 电脑AI）、GomokuView.gd（界面）
+  ludo/            飞行棋：LudoLogic.gd、LudoView.gd
+tests/
+  run_tests.gd     规则测试：电脑对电脑整局模拟
+.github/workflows/build.yml  自动检查 + 打包 + 发布
+```
+
+- **房主兼服务器**：所有规则判定都在房主那台设备上完成，其他人只发送操作、接收最新局面（状态同步）。
+- **单机 = 不开网络的房主**：同一套代码，空位由电脑补齐。
+- 端口：UDP `47800`（房间广播），UDP `47801`（游戏连接）。
+
+## 新增一款游戏
+
+1. 在 `games/<id>/` 下写 `XxxLogic.gd`（`setup / apply / get_state / current_seat / is_over / bot_action / bot_delay`）和 `XxxView.gd`（`update_state / status_text`）。
+2. 在 `core/GameRegistry.gd` 里登记，`ready` 设为 `true`，并配置玩法开关 `rules`。
+3. 在 `tests/run_tests.gd` 里加一局电脑对电脑测试，然后推送，GitHub Actions 会自动检查并打包。
+
+## 发布新版本
+
+推送一个 `v` 开头的标签（例如 `v0.2.0`），Actions 会自动打包并发布到 Releases。安卓包使用固定签名（保存在仓库 Secrets 里），新版本可以直接覆盖安装。

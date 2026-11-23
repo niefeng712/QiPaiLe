@@ -1,0 +1,8 @@
+.godot/
+build/
+dist/
+*.tmp
+*.keystore
+export_credentials.cfg
+tests.log
+smoke.log
