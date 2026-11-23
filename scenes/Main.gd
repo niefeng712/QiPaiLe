@@ -1135,13 +1135,18 @@ func _run_selftest() -> void:
 		await _wait_real(0.05)
 		Net.set_auto(true)
 		var t0 = Time.get_ticks_msec()
-		while not bool(Net.state.get("over", false)) and Time.get_ticks_msec() - t0 < 12000:
+		var cap_ms = 60000 if gid == "ludo" else 12000
+		while not bool(Net.state.get("over", false)) and Time.get_ticks_msec() - t0 < cap_ms:
 			await _wait_real(0.05)
 		if Net.state.is_empty() or game_view == null:
 			printerr("SELFTEST FAIL: no state for ", gid)
 			get_tree().quit(1)
 			return
 		var done = bool(Net.state.get("over", false))
+		if not done and gid != "xiangqi":
+			printerr("SELFTEST FAIL: %s did not finish within %ds" % [gid, cap_ms / 1000])
+			get_tree().quit(1)
+			return
 		print("SELFTEST game %s: %s in %.1fs ｜ %s" % [gid, "finished" if done else "still running (time cap)", (Time.get_ticks_msec() - t0) / 1000.0, game_status.text.left(70)])
 		if done:
 			var r1 = int(Net.state.get("round", 0))

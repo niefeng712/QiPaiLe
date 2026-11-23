@@ -160,6 +160,8 @@ func _test_registry() -> int:
 				f += _fail("logic missing for " + str(g["id"]))
 			if not ResourceLoader.exists(str(g["view"])):
 				f += _fail("view missing for " + str(g["id"]))
+	if str(Registry.default_rules("doudizhu4").get("cap", "")) != "64":
+		f += _fail("doudizhu4 default cap should be 64")
 	print("registry ok")
 	return f
 
