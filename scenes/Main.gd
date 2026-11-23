@@ -3,6 +3,8 @@ extends Control
 
 const Registry = preload("res://core/GameRegistry.gd")
 const SETTINGS_PATH = "user://settings.cfg"
+const STATS_PATH = "user://stats.cfg"
+const GameCard = preload("res://ui/GameCard.gd")
 
 var selected_game = "gomoku"
 var current_screen = ""
@@ -15,6 +17,16 @@ var name_edit: LineEdit
 var ip_label: Label
 var game_buttons = {}
 var game_desc_label: Label
+var detail_title: Label
+var detail_stat: Label
+var detail_icon: Control
+var hall_grid: GridContainer
+var hall_scroll: ScrollContainer
+var total_stat_label: Label
+var stats_popup: PopupPanel
+var stats_box: GridContainer
+var stats = {}
+var current_cat = "全部"
 var room_list_box: VBoxContainer
 var ip_edit: LineEdit
 var _rooms_sig = "-"
@@ -55,11 +67,24 @@ var _toast_token = 0
 func _ready() -> void:
 	get_tree().node_added.connect(_on_node_added)
 	_setup_theme()
-	var bg = ColorRect.new()
-	bg.color = Color("#1f5e3b")
+	var grad = Gradient.new()
+	grad.set_color(0, Color("#1d7148"))
+	grad.set_color(1, Color("#052417"))
+	var gt = GradientTexture2D.new()
+	gt.gradient = grad
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.5, 0.25)
+	gt.fill_to = Vector2(1.25, 1.2)
+	gt.width = 128
+	gt.height = 128
+	var bg = TextureRect.new()
+	bg.texture = gt
+	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bg.stretch_mode = TextureRect.STRETCH_SCALE
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
+	_load_stats()
 	_build_hall()
 	_build_room()
 	_build_game()
@@ -74,6 +99,7 @@ func _ready() -> void:
 	_load_settings()
 	_select_game(selected_game)
 	_show("hall")
+	_relayout_grid.call_deferred()
 	_on_rooms_updated([])
 	_refresh_ip_label()
 	if OS.get_cmdline_user_args().has("--selftest"):
@@ -86,7 +112,40 @@ func _setup_theme() -> void:
 	f.font_names = PackedStringArray(["Microsoft YaHei", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "Droid Sans Fallback", "sans-serif"])
 	th.default_font = f
 	th.default_font_size = 22
+	th.set_stylebox("normal", "Button", _sb(Color("#2b7a4f"), 10))
+	th.set_stylebox("hover", "Button", _sb(Color("#35935f"), 10))
+	th.set_stylebox("pressed", "Button", _sb(Color("#d9a521"), 10))
+	th.set_stylebox("hover_pressed", "Button", _sb(Color("#e8b632"), 10))
+	th.set_stylebox("disabled", "Button", _sb(Color(0.18, 0.28, 0.23, 0.75), 10))
+	th.set_stylebox("focus", "Button", StyleBoxEmpty.new())
+	th.set_color("font_pressed_color", "Button", Color("#2b1d00"))
+	th.set_color("font_hover_pressed_color", "Button", Color("#2b1d00"))
+	th.set_color("font_disabled_color", "Button", Color(1, 1, 1, 0.4))
+	th.set_stylebox("pressed", "CheckButton", _sb(Color("#2b7a4f"), 10))
+	th.set_stylebox("hover_pressed", "CheckButton", _sb(Color("#35935f"), 10))
+	th.set_color("font_pressed_color", "CheckButton", Color.WHITE)
+	th.set_color("font_hover_pressed_color", "CheckButton", Color.WHITE)
+	th.set_stylebox("panel", "PanelContainer", _sb(Color(0, 0, 0, 0.26), 16, Color(1, 1, 1, 0.08), 1, 14))
+	th.set_stylebox("normal", "LineEdit", _sb(Color(0, 0, 0, 0.35), 8, Color(1, 1, 1, 0.25), 1))
+	th.set_stylebox("focus", "LineEdit", _sb(Color(0, 0, 0, 0.45), 8, Color("#ffe066"), 2))
+	th.set_stylebox("panel", "PopupPanel", _sb(Color("#103a27"), 16, Color("#d9a521"), 2, 18))
+	th.set_stylebox("panel", "PopupMenu", _sb(Color("#103a27"), 8, Color("#d9a521"), 1))
+	th.set_color("font_hover_color", "PopupMenu", Color("#ffe066"))
 	theme = th
+
+
+func _sb(col: Color, radius: int, border: Color = Color(0, 0, 0, 0), bw: int = 0, margin: int = 12) -> StyleBoxFlat:
+	var sb = StyleBoxFlat.new()
+	sb.bg_color = col
+	sb.set_corner_radius_all(radius)
+	sb.content_margin_left = margin
+	sb.content_margin_right = margin
+	sb.content_margin_top = 6 if margin <= 12 else margin
+	sb.content_margin_bottom = 6 if margin <= 12 else margin
+	if bw > 0:
+		sb.border_color = border
+		sb.set_border_width_all(bw)
+	return sb
 
 
 func _notification(what: int) -> void:
@@ -137,6 +196,7 @@ func _show(screen: String) -> void:
 	if screen == "hall":
 		Net.start_discovery()
 		_refresh_ip_label()
+		_refresh_stats_ui()
 	else:
 		Net.stop_discovery()
 
@@ -156,79 +216,143 @@ func show_toast(text: String) -> void:
 func _build_hall() -> void:
 	hall_root = _make_screen()
 	var v = VBoxContainer.new()
-	v.add_theme_constant_override("separation", 14)
+	v.add_theme_constant_override("separation", 12)
 	hall_root.add_child(v)
 
+	# 顶部：logo、标题、战绩、音效、昵称
+	var head = PanelContainer.new()
+	v.add_child(head)
 	var top = HBoxContainer.new()
-	top.add_theme_constant_override("separation", 12)
-	v.add_child(top)
-	var title = _label("棋牌乐", 44)
+	top.add_theme_constant_override("separation", 14)
+	head.add_child(top)
+	var logo = TextureRect.new()
+	logo.texture = load("res://icon.svg")
+	logo.custom_minimum_size = Vector2(64, 64)
+	logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	top.add_child(logo)
+	var tv = VBoxContainer.new()
+	tv.add_theme_constant_override("separation", 0)
+	top.add_child(tv)
+	var title = _label("棋牌乐", 40)
 	title.add_theme_color_override("font_color", Color("#ffe066"))
-	top.add_child(title)
-	top.add_child(_label("  单机 + 同WiFi联机", 20))
+	title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.5))
+	title.add_theme_constant_override("shadow_offset_y", 3)
+	tv.add_child(title)
+	var subt = _label("单机 + 同WiFi联机 · %d 款游戏" % Registry.ready_count(), 17)
+	subt.modulate = Color(1, 1, 1, 0.8)
+	tv.add_child(subt)
 	var sp = Control.new()
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(sp)
+	total_stat_label = _label("", 18)
+	total_stat_label.modulate = Color(1, 1, 1, 0.85)
+	top.add_child(total_stat_label)
+	var sb_btn = _btn("我的战绩", _open_stats)
+	sb_btn.custom_minimum_size = Vector2(130, 50)
+	top.add_child(sb_btn)
 	sfx_toggle = CheckButton.new()
 	sfx_toggle.text = "音效"
 	sfx_toggle.button_pressed = true
 	sfx_toggle.toggled.connect(_on_sfx_toggled)
 	top.add_child(sfx_toggle)
-	top.add_child(_label("昵称：", 22))
+	top.add_child(_label("昵称", 20))
 	name_edit = LineEdit.new()
-	name_edit.custom_minimum_size = Vector2(200, 50)
+	name_edit.custom_minimum_size = Vector2(180, 48)
 	name_edit.max_length = 12
 	name_edit.text_changed.connect(_on_name_changed)
 	top.add_child(name_edit)
 
 	var body = HBoxContainer.new()
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_theme_constant_override("separation", 24)
+	body.add_theme_constant_override("separation", 14)
 	v.add_child(body)
 
+	# 左边：分类、游戏卡片、选中游戏的介绍
 	var left = VBoxContainer.new()
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.size_flags_stretch_ratio = 1.3
-	left.add_theme_constant_override("separation", 12)
+	left.size_flags_stretch_ratio = 1.8
+	left.add_theme_constant_override("separation", 10)
 	body.add_child(left)
-	left.add_child(_label("选择游戏", 26))
-	var grid = GridContainer.new()
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
-	left.add_child(grid)
+	var tabs = HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 8)
+	left.add_child(tabs)
+	var group = ButtonGroup.new()
+	for c in Registry.CATS:
+		var cat = str(c)
+		var tb = Button.new()
+		tb.text = cat
+		tb.toggle_mode = true
+		tb.button_group = group
+		tb.button_pressed = cat == "全部"
+		tb.custom_minimum_size = Vector2(96, 46)
+		tb.add_theme_font_size_override("font_size", 20)
+		tb.pressed.connect(func(): _apply_filter(cat))
+		tabs.add_child(tb)
+	hall_scroll = ScrollContainer.new()
+	hall_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	hall_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	left.add_child(hall_scroll)
+	hall_grid = GridContainer.new()
+	hall_grid.columns = 5
+	hall_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hall_grid.add_theme_constant_override("h_separation", 10)
+	hall_grid.add_theme_constant_override("v_separation", 10)
+	hall_scroll.add_child(hall_grid)
+	hall_scroll.resized.connect(_relayout_grid)
 	for g in Registry.GAMES:
-		var b = Button.new()
 		var gid = str(g["id"])
-		var is_ready = bool(g.get("ready", false))
-		b.text = str(g["name"]) if is_ready else str(g["name"]) + "\n(即将上线)"
-		b.custom_minimum_size = Vector2(160, 66)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.toggle_mode = true
-		b.disabled = not is_ready
-		b.add_theme_font_size_override("font_size", 22 if is_ready else 16)
-		b.pressed.connect(func(): _select_game(gid))
-		grid.add_child(b)
-		game_buttons[gid] = b
-	game_desc_label = _label("", 20)
+		var card = GameCard.new()
+		card.setup(g, Registry.icon(gid), _stat_text(gid))
+		card.pressed.connect(func(): _select_game(gid))
+		hall_grid.add_child(card)
+		game_buttons[gid] = card
+
+	var detail = PanelContainer.new()
+	left.add_child(detail)
+	var dh = HBoxContainer.new()
+	dh.add_theme_constant_override("separation", 14)
+	detail.add_child(dh)
+	var dv = VBoxContainer.new()
+	dv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dv.add_theme_constant_override("separation", 4)
+	dh.add_child(dv)
+	var dt_row = HBoxContainer.new()
+	dt_row.add_theme_constant_override("separation", 14)
+	dv.add_child(dt_row)
+	detail_title = _label("", 26)
+	detail_title.add_theme_color_override("font_color", Color("#ffe066"))
+	dt_row.add_child(detail_title)
+	detail_stat = _label("", 17)
+	detail_stat.modulate = Color(1, 1, 1, 0.85)
+	dt_row.add_child(detail_stat)
+	game_desc_label = _label("", 17)
 	game_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	game_desc_label.custom_minimum_size = Vector2(300, 60)
-	left.add_child(game_desc_label)
-	var actions = HBoxContainer.new()
-	actions.add_theme_constant_override("separation", 16)
-	left.add_child(actions)
+	game_desc_label.custom_minimum_size = Vector2(300, 0)
+	game_desc_label.max_lines_visible = 4
+	dv.add_child(game_desc_label)
+	var actions = VBoxContainer.new()
+	actions.add_theme_constant_override("separation", 8)
+	dh.add_child(actions)
 	var b1 = _btn("单机游戏（和电脑玩）", _on_offline)
-	b1.custom_minimum_size = Vector2(260, 64)
+	b1.custom_minimum_size = Vector2(250, 56)
 	actions.add_child(b1)
 	var b2 = _btn("创建局域网房间", _on_host)
-	b2.custom_minimum_size = Vector2(240, 64)
+	b2.custom_minimum_size = Vector2(250, 56)
+	b2.add_theme_stylebox_override("normal", _sb(Color("#c27c0e"), 10))
+	b2.add_theme_stylebox_override("hover", _sb(Color("#d98e1a"), 10))
 	actions.add_child(b2)
 
+	# 右边：局域网房间
+	var rp = PanelContainer.new()
+	rp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(rp)
 	var right = VBoxContainer.new()
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right.add_theme_constant_override("separation", 10)
-	body.add_child(right)
-	right.add_child(_label("同一WiFi下的房间", 26))
+	rp.add_child(right)
+	var rt = _label("同一WiFi下的房间", 24)
+	rt.add_theme_color_override("font_color", Color("#ffe066"))
+	right.add_child(rt)
 	var sc = ScrollContainer.new()
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -246,13 +370,138 @@ func _build_hall() -> void:
 	ip_edit.custom_minimum_size = Vector2(0, 50)
 	iprow.add_child(ip_edit)
 	iprow.add_child(_btn("按IP加入", _on_join_ip))
-	ip_label = _label("", 18)
+	ip_label = _label("", 17)
 	ip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	right.add_child(ip_label)
-	var hint = _label("提示：Windows 首次运行时会弹出防火墙提示，请勾选“专用网络”并允许。", 16)
+	var hint = _label("提示：Windows 首次运行时会弹出防火墙提示，请勾选“专用网络”并允许。", 15)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.modulate = Color(1, 1, 1, 0.75)
+	hint.modulate = Color(1, 1, 1, 0.7)
 	right.add_child(hint)
+	_build_stats_popup()
+
+
+func _relayout_grid() -> void:
+	if hall_grid == null or hall_scroll == null:
+		return
+	hall_grid.columns = clampi(int(hall_scroll.size.x / 165.0), 2, 8)
+
+
+func _apply_filter(cat: String) -> void:
+	current_cat = cat
+	for gid in game_buttons:
+		var card = game_buttons[gid]
+		card.visible = cat == "全部" or str(card.cat) == cat
+	hall_scroll.scroll_vertical = 0
+
+
+# ---------------------------------------------------------------- 战绩
+
+func _load_stats() -> void:
+	stats = {}
+	var cf = ConfigFile.new()
+	if cf.load(STATS_PATH) != OK:
+		return
+	for gid in cf.get_sections():
+		stats[gid] = [int(cf.get_value(gid, "played", 0)), int(cf.get_value(gid, "won", 0))]
+
+
+func _save_stats() -> void:
+	var cf = ConfigFile.new()
+	for gid in stats:
+		cf.set_value(gid, "played", int(stats[gid][0]))
+		cf.set_value(gid, "won", int(stats[gid][1]))
+	cf.save(STATS_PATH)
+
+
+func _stat_text(gid: String) -> String:
+	var v = stats.get(gid, [0, 0])
+	if int(v[0]) == 0:
+		return "还没玩过"
+	return "玩%d局 赢%d局" % [int(v[0]), int(v[1])]
+
+
+func _refresh_stats_ui() -> void:
+	var tp = 0
+	var tw = 0
+	for gid in stats:
+		tp += int(stats[gid][0])
+		tw += int(stats[gid][1])
+	if total_stat_label != null:
+		total_stat_label.text = "总战绩：%d局 胜%d局" % [tp, tw] if tp > 0 else "还没有战绩"
+	for gid in game_buttons:
+		game_buttons[gid].set_stat(_stat_text(gid))
+	if detail_stat != null:
+		var v = stats.get(selected_game, [0, 0])
+		detail_stat.text = "战绩：%d局 胜%d局（胜率%d%%）" % [int(v[0]), int(v[1]), int(round(100.0 * int(v[1]) / maxi(int(v[0]), 1)))] if int(v[0]) > 0 else "还没玩过，来一局吧"
+
+
+func _on_game_finished(st: Dictionary) -> void:
+	var me = Net.my_seat()
+	var gid = str(st.get("game_id", ""))
+	if me < 0 or gid == "":
+		return
+	var v = stats.get(gid, [0, 0])
+	v[0] = int(v[0]) + 1
+	if st.get("winners", []).has(me):
+		v[1] = int(v[1]) + 1
+	stats[gid] = v
+	_save_stats()
+	_refresh_stats_ui()
+
+
+func _build_stats_popup() -> void:
+	stats_popup = PopupPanel.new()
+	var v = VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	stats_popup.add_child(v)
+	var t = _label("我的战绩", 26)
+	t.add_theme_color_override("font_color", Color("#ffe066"))
+	v.add_child(t)
+	var sc = ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(560, 380)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	stats_box = GridContainer.new()
+	stats_box.columns = 4
+	stats_box.add_theme_constant_override("h_separation", 30)
+	stats_box.add_theme_constant_override("v_separation", 6)
+	sc.add_child(stats_box)
+	var row = HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	v.add_child(row)
+	row.add_child(_btn("清空战绩", _clear_stats))
+	row.add_child(_btn("关闭", func(): stats_popup.hide()))
+	add_child(stats_popup)
+
+
+func _open_stats() -> void:
+	_clear(stats_box)
+	for h in ["游戏", "局数", "胜", "胜率"]:
+		var l = _label(h, 19)
+		l.add_theme_color_override("font_color", Color("#ffe066"))
+		stats_box.add_child(l)
+	var any = false
+	for g in Registry.GAMES:
+		var gid = str(g["id"])
+		var v = stats.get(gid, [0, 0])
+		if int(v[0]) == 0:
+			continue
+		any = true
+		stats_box.add_child(_label(str(g["name"]), 19))
+		stats_box.add_child(_label(str(int(v[0])), 19))
+		stats_box.add_child(_label(str(int(v[1])), 19))
+		stats_box.add_child(_label("%d%%" % int(round(100.0 * int(v[1]) / maxi(int(v[0]), 1))), 19))
+	if not any:
+		stats_box.add_child(_label("还没有战绩，去玩一局吧", 19))
+	stats_popup.popup_centered(Vector2i(600, 0))
+
+
+func _clear_stats() -> void:
+	stats = {}
+	_save_stats()
+	_refresh_stats_ui()
+	stats_popup.hide()
+	show_toast("战绩已清空")
 
 
 func _refresh_ip_label() -> void:
@@ -269,9 +518,15 @@ func _select_game(id: String) -> void:
 	selected_game = id
 	for k in game_buttons:
 		game_buttons[k].button_pressed = (k == id)
+		game_buttons[k].queue_redraw()
 	var g = Registry.get_game(id)
 	if not g.is_empty():
-		game_desc_label.text = "【%s】%s" % [str(g["name"]), str(g.get("desc", ""))]
+		var n = int(g.get("seats", 0))
+		var mn = int(g.get("min_players", n))
+		var people = "%d人" % n if mn == n else "%d~%d人" % [mn, n]
+		detail_title.text = "%s  ·  %s" % [str(g["name"]), people]
+		game_desc_label.text = str(g.get("desc", ""))
+	_refresh_stats_ui()
 	_save_settings()
 
 
@@ -374,18 +629,22 @@ func _build_room() -> void:
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_theme_constant_override("separation", 30)
 	v.add_child(body)
+	var lp = PanelContainer.new()
+	lp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(lp)
 	var left = VBoxContainer.new()
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left.add_theme_constant_override("separation", 10)
-	body.add_child(left)
+	lp.add_child(left)
 	left.add_child(_label("座位", 26))
 	seats_box = VBoxContainer.new()
 	seats_box.add_theme_constant_override("separation", 8)
 	left.add_child(seats_box)
+	var rpn = PanelContainer.new()
+	rpn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(rpn)
 	var right = VBoxContainer.new()
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right.add_theme_constant_override("separation", 10)
-	body.add_child(right)
+	rpn.add_child(right)
 	right.add_child(_label("玩法规则", 26))
 	var rsc = ScrollContainer.new()
 	rsc.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -496,9 +755,12 @@ func _build_game() -> void:
 	var v = VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
 	game_root.add_child(v)
+	var bp = PanelContainer.new()
+	bp.add_theme_stylebox_override("panel", _sb(Color(0, 0, 0, 0.32), 14, Color(1, 1, 1, 0.08), 1, 8))
+	v.add_child(bp)
 	var bar = HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 12)
-	v.add_child(bar)
+	bp.add_child(bar)
 	game_title = _label("", 30)
 	game_title.add_theme_color_override("font_color", Color("#ffe066"))
 	bar.add_child(game_title)
@@ -645,10 +907,6 @@ func _play_state_sound(st: Dictionary) -> void:
 	_last_over = over
 	_last_cur = cur
 	_last_event = ev
-
-
-func _on_game_finished(_st: Dictionary) -> void:
-	pass
 
 
 func _build_chat() -> void:
@@ -811,5 +1069,13 @@ func _run_selftest() -> void:
 			return
 		Sfx.play(snd)
 	print("SELFTEST sounds ok")
+	_on_game_finished({"game_id": "gomoku", "winners": []})
+	_open_stats()
+	await get_tree().create_timer(0.2).timeout
+	stats_popup.hide()
+	for c in Registry.CATS:
+		_apply_filter(str(c))
+	_apply_filter("全部")
+	print("SELFTEST hall ok, cards: ", game_buttons.size())
 	print("SELFTEST OK")
 	get_tree().quit(0)

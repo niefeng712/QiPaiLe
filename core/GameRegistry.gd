@@ -344,7 +344,47 @@ const GAMES = [
 				"options": [["easy", "慢"], ["normal", "中等"], ["hard", "快"]]},
 		],
 	},
+	{"id": "heibai", "name": "黑白棋", "ready": false, "desc": "后续上线。"},
+	{"id": "weiqi", "name": "围棋", "ready": false, "desc": "后续上线。"},
+	{"id": "guandan", "name": "掼蛋", "ready": false, "desc": "后续上线。"},
 ]
+
+## 大厅分类和图标：[图标文字, 分类, 颜色]
+const CATS = ["全部", "扑克", "麻将", "棋类", "休闲"]
+const ICONS = {
+	"doudizhu": ["斗", "扑克", "#c0392b"],
+	"doudizhu4": ["斗", "扑克", "#8e44ad"],
+	"tuolaji": ["升", "扑克", "#d35400"],
+	"paodekuai": ["跑", "扑克", "#cb4335"],
+	"zhajinhua": ["金", "扑克", "#b7950b"],
+	"blackjack": ["21", "扑克", "#1f618d"],
+	"texas": ["德", "扑克", "#196f3d"],
+	"guandan": ["掼", "扑克", "#7b241c"],
+	"xuezhan": ["血", "麻将", "#a93226"],
+	"tuidao": ["粤", "麻将", "#1e8449"],
+	"dazhong": ["麻", "麻将", "#117a65"],
+	"gomoku": ["五", "棋类", "#2c3e50"],
+	"xiangqi": ["帅", "棋类", "#a04000"],
+	"checkers": ["跳", "棋类", "#2471a3"],
+	"junqi": ["军", "棋类", "#5d6d7e"],
+	"junqi2": ["陆", "棋类", "#7d6608"],
+	"heibai": ["黑", "棋类", "#212f3d"],
+	"weiqi": ["围", "棋类", "#4a235a"],
+	"ludo": ["飞", "休闲", "#e67e22"],
+	"lianliankan": ["连", "休闲", "#c2185b"],
+}
+
+
+static func icon(id: String) -> Array:
+	return ICONS.get(id, ["?", "休闲", "#555555"])
+
+
+static func ready_count() -> int:
+	var n = 0
+	for g in GAMES:
+		if bool(g.get("ready", false)):
+			n += 1
+	return n
 
 
 static func get_game(id: String) -> Dictionary:
