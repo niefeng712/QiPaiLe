@@ -11,6 +11,8 @@ const TljRules = preload("res://games/tuolaji/TljRules.gd")
 const TljLogic = preload("res://games/tuolaji/TuolajiLogic.gd")
 const MjRules = preload("res://games/mahjong/MjRules.gd")
 const MjLogic = preload("res://games/mahjong/MahjongLogic.gd")
+const CcRules = preload("res://games/checkers/CcRules.gd")
+const CcLogic = preload("res://games/checkers/CheckersLogic.gd")
 
 
 func _init() -> void:
@@ -58,6 +60,18 @@ func _init() -> void:
 			failures += _test_mj_game(mm[0], i + 1, false)
 	failures += _test_mj_game({"mode": "xuezhan", "huan": "on", "cap": "4"}, 2, true)
 	failures += _test_mj_game({"mode": "dazhong", "cap": "4"}, 3, true)
+	failures += _test_cc_rules()
+	var ccm = [
+		[[0, 1], {"jump": "adjacent", "pieces": "10", "end": "first"}, 3],
+		[[0, 1], {"jump": "far", "pieces": "10", "end": "first"}, 2],
+		[[0, 2, 4], {"jump": "adjacent", "pieces": "10", "end": "all"}, 1],
+		[[0, 1, 2, 3], {"jump": "adjacent", "pieces": "10", "end": "first"}, 1],
+		[[0, 1, 2, 3, 4, 5], {"jump": "adjacent", "pieces": "6", "end": "first"}, 1],
+		[[0, 1, 2, 3, 4, 5], {"jump": "far", "pieces": "10", "end": "first"}, 1],
+	]
+	for cm in ccm:
+		for i in int(cm[2]):
+			failures += _test_cc_game(cm[0], cm[1], i + 1)
 	if failures == 0:
 		print("ALL TESTS PASSED")
 	else:
@@ -493,4 +507,80 @@ func _test_mj_game(rules: Dictionary, round_no: int, timeout0: bool) -> int:
 			fn.append(str(x[0]))
 		ws.append("%d:%s%s%d番" % [int(w["seat"]), "自摸" if bool(w["zimo"]) else "点炮", "/".join(PackedStringArray(fn)), int(w["fan"])])
 	print("mj %s r%d%s: %d actions, wall left %d, %s, wins [%s], checks %d, scores %s, %dms" % [str(rules["mode"]), round_no, " (seat0 timeouts)" if timeout0 else "", steps, lg.wall.size(), str(stat), ", ".join(PackedStringArray(ws)), lg.checks.size(), str(lg.scores), Time.get_ticks_msec() - t0])
+	return 0
+
+
+# ---------------------------------------------------------------- 中国跳棋
+
+func _ci(x: int, y: int) -> int:
+	for i in CcRules.count():
+		var c = CcRules.cell(i)
+		if c.x == x and c.y == y:
+			return i
+	return -1
+
+
+func _test_cc_rules() -> int:
+	var f = 0
+	f += _expect(CcRules.count() == 121, "cc board has 121 holes (got %d)" % CcRules.count())
+	for p in 6:
+		f += _expect(CcRules.zone(p, 10).size() == 10, "cc corner %d has 10 holes" % p)
+		f += _expect(CcRules.zone(p, 6).size() == 6, "cc corner %d small zone 6" % p)
+	var occ = []
+	occ.resize(121)
+	occ.fill(-1)
+	var a = _ci(0, 0)
+	var b = _ci(1, -1)
+	var c = _ci(2, -2)
+	occ[a] = 0
+	occ[b] = 1
+	var r = CcRules.reachable(occ, a, false)
+	f += _expect(r.has(c) and r[c].size() == 2, "cc adjacent jump")
+	f += _expect(r.has(_ci(-1, 1)), "cc single step")
+	occ[b] = -1
+	occ[c] = 1
+	r = CcRules.reachable(occ, a, false)
+	f += _expect(not r.has(_ci(4, -4)), "cc no far jump in adjacent mode")
+	r = CcRules.reachable(occ, a, true)
+	f += _expect(r.has(_ci(4, -4)), "cc far jump over midpoint piece")
+	occ[c] = -1
+	occ[b] = 1
+	occ[_ci(3, -3)] = 1
+	r = CcRules.reachable(occ, a, false)
+	f += _expect(r.has(c) and r.has(_ci(4, -4)) and r[_ci(4, -4)].size() == 3, "cc chain jump")
+	if f == 0:
+		print("checkers rules ok")
+	return f
+
+
+func _test_cc_game(seats: Array, rules: Dictionary, rn: int) -> int:
+	var lg = CcLogic.new()
+	lg.setup(seats, rules, rn)
+	var t0 = Time.get_ticks_msec()
+	var steps = 0
+	var np = 10 if str(rules["pieces"]) == "10" else 6
+	while not lg.is_over() and steps < 20000:
+		var s = lg.current_seat()
+		var a = lg.bot_action(s)
+		if a.is_empty():
+			return _fail("cc bot empty action")
+		var err = lg.apply(s, a)
+		if err != "":
+			return _fail("cc illegal %s: %s" % [str(a), err])
+		steps += 1
+	if not lg.is_over():
+		return _fail("cc never finished")
+	var cnt = {}
+	for v in lg.occ:
+		if int(v) >= 0:
+			cnt[int(v)] = int(cnt.get(int(v), 0)) + 1
+	for s in seats:
+		if int(cnt.get(int(s), 0)) != np:
+			return _fail("cc piece count wrong for seat %d" % int(s))
+	if lg.ranking.size() != seats.size():
+		return _fail("cc ranking incomplete")
+	var prog = []
+	for s in seats:
+		prog.append(lg.in_target_count(int(s)))
+	print("cc %dp %s r%d: %d moves (%d rounds)%s, finished %s, ranking %s, in-target %s, %dms" % [seats.size(), str(rules), rn, lg.moves, lg.moves / seats.size(), " CAPPED" if lg.capped else "", str(lg.finished), str(lg.ranking), str(prog), Time.get_ticks_msec() - t0])
 	return 0

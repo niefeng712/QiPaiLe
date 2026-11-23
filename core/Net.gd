@@ -213,7 +213,7 @@ func host_room(game_id: String, rules: Dictionary, offline: bool) -> bool:
 	for i in int(g["seats"]):
 		if i == 0:
 			seats.append({"kind": "human", "peer": 1, "name": player_name, "away": ""})
-		elif offline:
+		elif offline and i < int(g.get("offline_seats", g["seats"])):
 			seats.append(_bot_seat(i))
 		else:
 			seats.append(_empty_seat())
@@ -550,6 +550,16 @@ func _host_start() -> void:
 			seats[i] = _bot_seat(i)
 			filled += 1
 			auto_bots += 1
+	var allowed = g.get("counts", [])
+	if not allowed.is_empty():
+		# 只支持特定人数的游戏（例如跳棋 2/3/4/6 人）：补电脑到最近的合法人数
+		while not allowed.has(filled) and filled < seats.size():
+			for i in seats.size():
+				if str(seats[i]["kind"]) == "empty":
+					seats[i] = _bot_seat(i)
+					filled += 1
+					auto_bots += 1
+					break
 	if auto_bots > 0:
 		_toast_all("人数不够，已自动补了 %d 个电脑" % auto_bots)
 	var players = []
