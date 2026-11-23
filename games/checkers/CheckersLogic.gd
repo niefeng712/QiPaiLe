@@ -1,13 +1,15 @@
 extends RefCounted
 ## 中国跳棋（只在房主端运行）：2 / 3 / 4 / 6 人
 ## 每人从自己的角出发，把全部棋子移到正对面的角。一步可以走到相邻空孔，或连续跳过棋子。
-## 进了对面角的棋子不能再出来。对面角被填满、而且里面至少有一颗自己的棋子，就算到达（防止别人堵角）。
+## 进了对面角的棋子不能再出来。自己的棋子全部进入对面角就算到达；
+## 防堵角：走满60轮后，对面角被填满、里面至少有一颗自己的棋子，也算到达。
 ## 玩法开关：pieces 10 / 6；jump adjacent 相邻跳 / far 隔空跳；end first 有人到达就结束 / all 排出全部名次
 
 const C = preload("res://games/checkers/CcRules.gd")
 const LAYOUT = {2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 6: [0, 1, 2, 3, 4, 5]}
 const CNAMES = ["红方", "黄方", "绿方", "蓝方", "紫方", "橙方"]
 const MAX_ROUNDS = 220
+const BLOCK_ROUNDS = 60
 
 var rules = {}
 var order = []
@@ -97,14 +99,19 @@ func _in_target(s: int, i: int) -> bool:
 
 
 func _done(s: int) -> bool:
+	## 自己的棋子全部进了终点就算到达；
+	## 防堵角：走满 BLOCK_ROUNDS 轮后，终点被填满、里面有自己的棋子也算到达
 	var own = 0
+	var full = true
 	for c in _targets[s]:
 		var v = int(occ[c])
 		if v == -1:
-			return false
-		if v == s:
+			full = false
+		elif v == s:
 			own += 1
-	return own > 0
+	if own == pieces:
+		return true
+	return full and own > 0 and moves / maxi(order.size(), 1) >= BLOCK_ROUNDS
 
 
 func legal_moves(s: int, from: int) -> Dictionary:

@@ -68,6 +68,7 @@ func _init() -> void:
 		[[0, 1, 2, 3], {"jump": "adjacent", "pieces": "10", "end": "first"}, 1],
 		[[0, 1, 2, 3, 4, 5], {"jump": "adjacent", "pieces": "6", "end": "first"}, 1],
 		[[0, 1, 2, 3, 4, 5], {"jump": "far", "pieces": "10", "end": "first"}, 1],
+		[[0, 1, 2, 3, 4, 5], {"jump": "adjacent", "pieces": "10", "end": "first"}, 1],
 	]
 	for cm in ccm:
 		for i in int(cm[2]):
@@ -582,5 +583,9 @@ func _test_cc_game(seats: Array, rules: Dictionary, rn: int) -> int:
 	var prog = []
 	for s in seats:
 		prog.append(lg.in_target_count(int(s)))
+	if not lg.capped and not lg.finished.is_empty():
+		var w = int(lg.finished[0])
+		if lg.in_target_count(w) < np and lg.moves / seats.size() < CcLogic.BLOCK_ROUNDS:
+			return _fail("cc winner %d finished early with only %d pieces in target" % [w, lg.in_target_count(w)])
 	print("cc %dp %s r%d: %d moves (%d rounds)%s, finished %s, ranking %s, in-target %s, %dms" % [seats.size(), str(rules), rn, lg.moves, lg.moves / seats.size(), " CAPPED" if lg.capped else "", str(lg.finished), str(lg.ranking), str(prog), Time.get_ticks_msec() - t0])
 	return 0
