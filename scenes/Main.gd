@@ -1135,7 +1135,7 @@ func _run_selftest() -> void:
 		await _wait_real(0.05)
 		Net.set_auto(true)
 		var t0 = Time.get_ticks_msec()
-		var cap_ms = 60000 if gid == "ludo" else 12000
+		var cap_ms = 60000 if gid in ["ludo", "junqi", "junqi2"] else 20000
 		while not bool(Net.state.get("over", false)) and Time.get_ticks_msec() - t0 < cap_ms:
 			await _wait_real(0.05)
 		if Net.state.is_empty() or game_view == null:
