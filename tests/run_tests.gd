@@ -9,6 +9,8 @@ const DdzRules = preload("res://games/doudizhu/DdzRules.gd")
 const DdzLogic = preload("res://games/doudizhu/DoudizhuLogic.gd")
 const TljRules = preload("res://games/tuolaji/TljRules.gd")
 const TljLogic = preload("res://games/tuolaji/TuolajiLogic.gd")
+const MjRules = preload("res://games/mahjong/MjRules.gd")
+const MjLogic = preload("res://games/mahjong/MahjongLogic.gd")
 
 
 func _init() -> void:
@@ -43,6 +45,19 @@ func _init() -> void:
 	failures += _test_tlj_random()
 	failures += _test_tlj_match({"throw": "on", "bottom": "size"}, 10)
 	failures += _test_tlj_match({"throw": "off", "bottom": "2"}, 6)
+	failures += _test_mj_rules()
+	var mjm = [
+		[{"mode": "xuezhan", "huan": "on", "cap": "4"}, 4],
+		[{"mode": "xuezhan", "huan": "off", "cap": "none"}, 2],
+		[{"mode": "tuidao", "pao": "zimo", "ma": "4", "cap": "5"}, 3],
+		[{"mode": "tuidao", "pao": "pao", "ma": "0", "cap": "5"}, 2],
+		[{"mode": "dazhong", "cap": "4"}, 4],
+	]
+	for mm in mjm:
+		for i in int(mm[1]):
+			failures += _test_mj_game(mm[0], i + 1, false)
+	failures += _test_mj_game({"mode": "xuezhan", "huan": "on", "cap": "4"}, 2, true)
+	failures += _test_mj_game({"mode": "dazhong", "cap": "4"}, 3, true)
 	if failures == 0:
 		print("ALL TESTS PASSED")
 	else:
@@ -375,4 +390,107 @@ func _test_tlj_match(rules: Dictionary, rounds: int) -> int:
 		print("tlj %s r%d: dealer %d, trump %d, level %d, tricks %d, attackers %d pts (bottom bonus %d), levels %s, next dealer %d%s" % [str(rules), rn, lg.dealer, lg.trump, lg.level, lg.tricks_done, lg.points, int(lg.result.get("bonus", 0)), str(lg.levels), lg.next_dealer, " MATCH OVER" if lg.match_over else ""])
 		carry = lg.carry_out()
 	print("tlj match ok in %dms" % (Time.get_ticks_msec() - t0))
+	return 0
+
+
+# ---------------------------------------------------------------- 麻将
+
+func _mk(types: Array) -> Array:
+	var used = {}
+	var out = []
+	for t in types:
+		var k = int(used.get(t, 0))
+		used[t] = k + 1
+		out.append(int(t) * 4 + k)
+	return out
+
+
+func _mc(types: Array) -> Array:
+	return MjRules.counts_of(_mk(types))
+
+
+func _test_mj_rules() -> int:
+	var f = 0
+	var win = _mc([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 22, 22])
+	f += _expect(MjRules.is_win(win, 0, true, true) and MjRules.shanten(win, 0, true) == -1, "mj standard win")
+	var tp = _mc([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 22])
+	f += _expect(MjRules.shanten(tp, 0, true) == 0, "mj tenpai single wait")
+	var tp2 = _mc([1, 2, 3, 4, 5, 6, 10, 11, 12, 20, 20, 30, 30])
+	f += _expect(MjRules.shanten(tp2, 0, false) == 0, "mj tenpai shanpon")
+	var not_win = _mc([0, 1, 3, 4, 6, 7, 9, 10, 12, 13, 15, 16, 22, 22])
+	f += _expect(not MjRules.is_win(not_win, 0, true, true), "mj not a win")
+	var seven = _mc([0, 0, 2, 2, 5, 5, 9, 9, 13, 13, 20, 20, 26, 26])
+	f += _expect(MjRules.is_win(seven, 0, true, false) and not MjRules.is_win(seven, 0, false, false), "mj seven pairs")
+	var dragon = _mc([0, 0, 0, 0, 5, 5, 9, 9, 13, 13, 20, 20, 26, 26])
+	f += _expect(MjRules.is_win(dragon, 0, true, false), "mj dragon seven pairs")
+	var ko = _mc([0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33, 33])
+	f += _expect(MjRules.is_win(ko, 0, false, true) and not MjRules.is_win(ko, 0, false, false), "mj thirteen orphans")
+	var pp = _mc([1, 1, 1, 5, 5, 5, 12, 12, 12, 20, 20, 20, 30, 30])
+	f += _expect(MjRules.is_all_triplets(pp) and MjRules.is_win(pp, 0, false, false), "mj all triplets")
+	f += _expect(MjRules.is_win(_mc([7, 7]), 4, false, false), "mj four melds + pair")
+	f += _expect(MjRules.shanten(_mc([7]), 4, false) == 0, "mj single-tile wait")
+	var nine = _mc([0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 8, 8, 4])
+	f += _expect(MjRules.is_win(nine, 0, false, false), "mj pure nine gates style win")
+	var hand = _mk([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 22, 30])
+	var d = MjRules.suggest_discard(hand, 0, -1, 34)
+	f += _expect(d / 4 == 30 or d / 4 == 22, "mj suggest discard isolated tile (got %s)" % MjRules.tname(d / 4))
+	var qh = _mk([0, 1, 2, 9, 10, 11, 12, 13, 14, 18, 19, 20, 21, 21])
+	f += _expect(MjRules.tsuit(MjRules.suggest_discard(qh, 0, 0, 27) / 4) == 0, "mj must discard que suit first")
+	if f == 0:
+		print("mahjong rules ok")
+	return f
+
+
+func _test_mj_game(rules: Dictionary, round_no: int, timeout0: bool) -> int:
+	var lg = MjLogic.new()
+	lg.setup([0, 1, 2, 3], rules, round_no)
+	var full = 108 if str(rules["mode"]) == "xuezhan" else 136
+	var steps = 0
+	var t0 = Time.get_ticks_msec()
+	var stat = {"peng": 0, "gang": 0, "chi": 0, "agang": 0}
+	while not lg.is_over() and steps < 4000:
+		var seat = lg.current_seat()
+		var a = {}
+		if timeout0 and seat == 0:
+			a = lg.timeout_action(seat)
+		if a.is_empty():
+			a = lg.bot_action(seat)
+		if a.is_empty():
+			return _fail("mj bot empty action in %s" % lg.phase)
+		var act = str(a.get("act", a.get("type", "")))
+		var err = lg.apply(seat, a)
+		if err != "":
+			return _fail("mj illegal %s in %s: %s" % [str(a), lg.phase, err])
+		if stat.has(act):
+			stat[act] += 1
+		var tot = lg.wall.size() + lg.ma.size()
+		for s in 4:
+			tot += lg.hands[s].size() + lg.discards[s].size()
+			for m in lg.melds[s]:
+				tot += m["tiles"].size()
+		for s in 4:
+			for x in lg.exch_pick[s]:
+				if not lg.hands[(s + lg.exch_dir) % 4].has(x) and lg.phase == "exchange":
+					tot += 1
+		if tot != full:
+			return _fail("mj tile count %d != %d (phase %s)" % [tot, full, lg.phase])
+		steps += 1
+	if not lg.is_over():
+		return _fail("mj never finished")
+	var sum = 0
+	for v in lg.scores:
+		sum += int(v)
+	if sum != 0:
+		return _fail("mj scores not zero-sum %s" % str(lg.scores))
+	for s in 4:
+		var st = lg.get_state_for(s)
+		if st["my_hand"].size() + (1 if int(st["drawn"]) >= 0 else 0) != lg.hands[s].size():
+			return _fail("mj state hand mismatch")
+	var ws = []
+	for w in lg.wins:
+		var fn = []
+		for x in w["fans"]:
+			fn.append(str(x[0]))
+		ws.append("%d:%s%s%d番" % [int(w["seat"]), "自摸" if bool(w["zimo"]) else "点炮", "/".join(PackedStringArray(fn)), int(w["fan"])])
+	print("mj %s r%d%s: %d actions, wall left %d, %s, wins [%s], checks %d, scores %s, %dms" % [str(rules["mode"]), round_no, " (seat0 timeouts)" if timeout0 else "", steps, lg.wall.size(), str(stat), ", ".join(PackedStringArray(ws)), lg.checks.size(), str(lg.scores), Time.get_ticks_msec() - t0])
 	return 0

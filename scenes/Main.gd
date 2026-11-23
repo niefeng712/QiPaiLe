@@ -184,11 +184,11 @@ func _build_hall() -> void:
 		var gid = str(g["id"])
 		var is_ready = bool(g.get("ready", false))
 		b.text = str(g["name"]) if is_ready else str(g["name"]) + "\n(即将上线)"
-		b.custom_minimum_size = Vector2(170, 84)
+		b.custom_minimum_size = Vector2(160, 66)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.toggle_mode = true
 		b.disabled = not is_ready
-		b.add_theme_font_size_override("font_size", 24 if is_ready else 18)
+		b.add_theme_font_size_override("font_size", 22 if is_ready else 16)
 		b.pressed.connect(func(): _select_game(gid))
 		grid.add_child(b)
 		game_buttons[gid] = b

@@ -29,7 +29,9 @@
 | 四人斗地主 | ✅ 已上线 | 两副牌，每人25张、底牌8张，一打三；4~8张炸弹，天王炸；其余玩法开关同斗地主 |
 | 升级拖拉机 | ✅ 已上线 | 4人两副牌对家一伙；亮主/反主/无主，扣底，跟花色·对子·拖拉机，甩牌，抠底翻倍，80分上台，从2打到A |
 | 中国跳棋 | 第三阶段 | 2/3/4/6 人 |
-| 麻将 | 第三阶段 | 通用引擎 + 各地规则（血战到底、推倒胡、国标…） |
+| 血战到底 | ✅ 已上线 | 四川麻将：108张，换三张、定缺，一家胡了继续打，查花猪/查大叫，刮风下雨 |
+| 广东推倒胡 | ✅ 已上线 | 136张不能吃，只能自摸/可点炮，抢杠胡，买马 |
+| 大众麻将 | ✅ 已上线 | 136张能吃碰杠，可点炮，常见番型 |
 | 中国象棋、四国军棋、连连看 | 后续 | |
 
 ## 技术结构
@@ -43,6 +45,7 @@ scenes/
 games/
   gomoku/          五子棋：GomokuLogic.gd（规则 + 电脑AI）、GomokuView.gd（界面）
   ludo/            飞行棋：LudoLogic.gd、LudoView.gd
+  mahjong/         麻将：MjRules.gd（向听数/胡牌判定/电脑出牌）、MahjongLogic.gd（三种玩法）、MahjongView.gd
   tuolaji/         升级拖拉机：TljRules.gd（牌型/跟牌/甩牌判定）、TuolajiLogic.gd、TuolajiView.gd
   doudizhu/        斗地主：DdzRules.gd（牌型判定/提示，含癞子）、DoudizhuLogic.gd、DoudizhuView.gd
 tests/
