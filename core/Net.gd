@@ -583,6 +583,8 @@ func _host_start() -> void:
 	room["playing"] = true
 	_broadcast_room()
 	_broadcast_state()
+	if _logic.has_method("tick"):
+		_realtime_loop()
 
 
 func _h_action(sender: int, a) -> void:
@@ -610,6 +612,26 @@ func _h_auto(sender: int, on: bool) -> void:
 	_broadcast_room()
 	if bool(room.get("playing", false)) and _logic != null:
 		_schedule_bot()
+
+
+func _realtime_loop() -> void:
+	## 实时游戏（例如连连看）：大家同时操作，电脑和托管的座位按自己的节奏出手
+	var token = _round
+	var logic = _logic
+	while _logic == logic and token == _round and bool(room.get("playing", false)) and not _logic.is_over():
+		await get_tree().create_timer(0.25).timeout
+		if _logic != logic or token != _round or not bool(room.get("playing", false)):
+			return
+		var changed = _logic.tick(0.25)
+		var seats = room["seats"]
+		for i in seats.size():
+			var sd = seats[i]
+			if str(sd["kind"]) == "bot" or bool(sd.get("auto", false)):
+				var a = _logic.bot_action(i)
+				if not a.is_empty() and _logic.apply(i, a) == "":
+					changed = true
+		if changed:
+			_broadcast_state()
 
 
 func _schedule_bot() -> void:

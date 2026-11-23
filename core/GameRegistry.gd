@@ -242,7 +242,25 @@ const GAMES = [
 				"options": [["off", "不限时"], ["30", "30秒"], ["60", "60秒"]]},
 		],
 	},
-	{"id": "lianliankan", "name": "连连看", "ready": false, "desc": "后续上线。"},
+	{
+		"id": "lianliankan",
+		"name": "连连看",
+		"ready": true,
+		"seats": 4,
+		"min_players": 1,
+		"offline_seats": 1,
+		"desc": "点两张一样的牌，能用不超过两个拐弯的线连起来就消掉（线可以绕到棋盘外面）。单人限时挑战；多人时每人一盘一样的牌同时开始，比谁先消完。没有能消的牌会自动重排；每人有3次提示、2次重排。想和电脑比赛，在房间里把空位设为电脑。",
+		"logic": "res://games/lianliankan/LlkLogic.gd",
+		"view": "res://games/lianliankan/LlkView.gd",
+		"rules": [
+			{"key": "size", "label": "牌数", "default": "normal",
+				"options": [["small", "60张（10×6）"], ["normal", "112张（14×8）"], ["large", "144张（16×9）"]]},
+			{"key": "time", "label": "时间", "default": "300",
+				"options": [["180", "3分钟"], ["300", "5分钟"], ["600", "10分钟"]]},
+			{"key": "level", "label": "电脑速度", "default": "normal",
+				"options": [["easy", "慢"], ["normal", "中等"], ["hard", "快"]]},
+		],
+	},
 ]
 
 

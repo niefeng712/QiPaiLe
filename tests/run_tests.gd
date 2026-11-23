@@ -17,6 +17,7 @@ const XqRules = preload("res://games/xiangqi/XqRules.gd")
 const XqLogic = preload("res://games/xiangqi/XiangqiLogic.gd")
 const JqBoard = preload("res://games/junqi/JqBoard.gd")
 const JqLogic = preload("res://games/junqi/JunqiLogic.gd")
+const LlkLogic = preload("res://games/lianliankan/LlkLogic.gd")
 
 
 func _init() -> void:
@@ -87,6 +88,10 @@ func _init() -> void:
 	failures += _test_jq_game("4", "dark", 2)
 	for i in 3:
 		failures += _test_jq_game("2", "dark" if i < 2 else "open", i + 1)
+	failures += _test_llk_rules()
+	failures += _test_llk_game([0], {"size": "normal", "time": "600", "level": "hard"})
+	failures += _test_llk_game([0, 1, 2], {"size": "small", "time": "180", "level": "normal"})
+	failures += _test_llk_game([0, 3], {"size": "large", "time": "180", "level": "easy"})
 	if failures == 0:
 		print("ALL TESTS PASSED")
 	else:
@@ -823,4 +828,72 @@ func _test_jq_game(board: String, view: String, rn: int) -> int:
 	if not lg.is_over():
 		return _fail("jq never finished")
 	print("jq %sp %s r%d: %d actions, %d plies, %d fights, out order %s, winners %s, %dms ｜ %s" % [board, view, rn, steps, lg.plies, fights, str(lg.out_order), str(lg.winners()), Time.get_ticks_msec() - t0, lg.event.right(60)])
+	return 0
+
+
+# ---------------------------------------------------------------- 连连看
+
+func _test_llk_rules() -> int:
+	var f = 0
+	var lg = LlkLogic.new()
+	lg.setup([0], {"size": "small"}, 1)
+	var gw = lg.W + 2
+	var b = []
+	b.resize(gw * (lg.H + 2))
+	b.fill(-1)
+	var at = func(x, y): return (y + 1) * gw + x + 1
+	b[at.call(0, 0)] = 1
+	b[at.call(3, 0)] = 1
+	f += _expect(not lg.connect_path(b, at.call(0, 0), at.call(3, 0)).is_empty(), "llk straight line")
+	b[at.call(1, 0)] = 5
+	f += _expect(lg.connect_path(b, at.call(0, 0), at.call(3, 0)).size() >= 3, "llk route around via border")
+	for x in lg.W:
+		b[at.call(x, 1)] = 7
+	b[at.call(0, 2)] = 2
+	b[at.call(5, 4)] = 2
+	for x in lg.W:
+		b[at.call(x, 3)] = 7
+		if x != 5:
+			b[at.call(x, 4)] = 8
+	f += _expect(lg.connect_path(b, at.call(0, 2), at.call(5, 4)).is_empty(), "llk blocked needs more than two turns")
+	b[at.call(5, 3)] = -1
+	f += _expect(not lg.connect_path(b, at.call(0, 2), at.call(5, 4)).is_empty(), "llk path opens up")
+	f += _expect(lg.connect_path(b, at.call(0, 2), at.call(0, 0)).is_empty(), "llk different tiles never connect")
+	var cnt = {}
+	for v in lg.boards[0]:
+		if int(v) >= 0:
+			cnt[int(v)] = int(cnt.get(int(v), 0)) + 1
+	var even = true
+	for k in cnt:
+		if int(cnt[k]) % 2 != 0:
+			even = false
+	f += _expect(even and not lg.find_pair(lg.boards[0]).is_empty(), "llk new board pairs up and is playable")
+	if f == 0:
+		print("lianliankan rules ok")
+	return f
+
+
+func _test_llk_game(seats: Array, rules: Dictionary) -> int:
+	var lg = LlkLogic.new()
+	lg.setup(seats, rules, 1)
+	var t0 = Time.get_ticks_msec()
+	var steps = 0
+	var total = lg.W * lg.H
+	while not lg.is_over() and steps < 100000:
+		lg.tick(0.25)
+		for s in seats:
+			var a = lg.bot_action(int(s))
+			if not a.is_empty():
+				var err = lg.apply(int(s), a)
+				if err != "":
+					return _fail("llk bot illegal: " + err)
+		steps += 1
+	if not lg.is_over():
+		return _fail("llk never finished")
+	var lefts = []
+	for s in seats:
+		lefts.append(lg._left(int(s)))
+	print("llk %dp %s: %.0fs used, left %s, done %s, winners %s, scores %s, %dms" % [seats.size(), str(rules), steps * 0.25, str(lefts), str(lg.done), str(lg.winners()), str(lg.scores), Time.get_ticks_msec() - t0])
+	if seats.size() == 1 and not lg.done.has(0):
+		return _fail("llk fast bot couldn't clear the board in 10 minutes")
 	return 0

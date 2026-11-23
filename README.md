@@ -35,7 +35,8 @@
 | 中国象棋 | ✅ 已上线 | 标准规则（蹩马腿、塞象眼、炮架、将帅照面、不能送将），将死/困毙判负，认输，电脑三档难度 |
 | 四国军棋 | ✅ 已上线 | 4人对家一伙，九宫兵站+弧形铁路，暗棋/队友可见/明棋，布阵换位，工兵飞铁路、炸弹、地雷、司令死亮旗 |
 | 两国军棋 | ✅ 已上线 | 2人陆战棋，三处过山界，规则同四国军棋 |
-| 连连看、跑得快、德州扑克 | 开发中 | |
+| 连连看 | ✅ 已上线 | 两个拐弯以内连线消除，单人限时挑战 / 多人同时比赛，提示、重排，自动重排保证有解 |
+| 跑得快、德州扑克 | 开发中 | |
 
 ## 技术结构
 
@@ -48,6 +49,7 @@ scenes/
 games/
   gomoku/          五子棋：GomokuLogic.gd（规则 + 电脑AI）、GomokuView.gd（界面）
   ludo/            飞行棋：LudoLogic.gd、LudoView.gd
+  lianliankan/     连连看：LlkLogic.gd（连线判断/实时计时）、LlkView.gd
   junqi/           军棋：JqBoard.gd（四国/两国棋盘、铁路、碰子规则）、JunqiLogic.gd、JunqiView.gd
   xiangqi/         中国象棋：XqRules.gd（走法/将军判断/电脑搜索）、XiangqiLogic.gd、XiangqiView.gd
   checkers/        中国跳棋：CcRules.gd（121孔棋盘/走法）、CheckersLogic.gd、CheckersView.gd
