@@ -24,7 +24,7 @@
 | --- | --- | --- |
 | 五子棋 | ✅ 已上线 | 无禁手，执黑先手可选每局轮换 / 固定 / 随机 |
 | 飞行棋 | ✅ 已上线 | 2～4 人；起飞点数（仅6 / 5或6）、同色跳跃、终点回弹可选 |
-| 斗地主 | 第二阶段 | 经典 / 不洗牌 / 癞子 |
+| 斗地主 | ✅ 已上线 | 叫分抢地主；经典洗牌 / 不洗牌 / 癞子（软炸 < 硬炸 < 癞子炸 < 王炸）；封顶倍数可选；春天/反春；累计总分 |
 | 升级拖拉机 | 第二阶段 | 双副牌 |
 | 中国跳棋 | 第三阶段 | 2/3/4/6 人 |
 | 麻将 | 第三阶段 | 通用引擎 + 各地规则（血战到底、推倒胡、国标…） |
@@ -41,6 +41,7 @@ scenes/
 games/
   gomoku/          五子棋：GomokuLogic.gd（规则 + 电脑AI）、GomokuView.gd（界面）
   ludo/            飞行棋：LudoLogic.gd、LudoView.gd
+  doudizhu/        斗地主：DdzRules.gd（牌型判定/提示，含癞子）、DoudizhuLogic.gd、DoudizhuView.gd
 tests/
   run_tests.gd     规则测试：电脑对电脑整局模拟
 .github/workflows/build.yml  自动检查 + 打包 + 发布
@@ -52,7 +53,7 @@ tests/
 
 ## 新增一款游戏
 
-1. 在 `games/<id>/` 下写 `XxxLogic.gd`（`setup / apply / get_state / current_seat / is_over / bot_action / bot_delay`）和 `XxxView.gd`（`update_state / status_text`）。
+1. 在 `games/<id>/` 下写 `XxxLogic.gd`（`setup / apply / get_state / current_seat / is_over / bot_action / bot_delay`；牌类游戏再加 `get_state_for(seat)` 只发自己的手牌，`round_scores()` 记累计分）和 `XxxView.gd`（`update_state / status_text`）。
 2. 在 `core/GameRegistry.gd` 里登记，`ready` 设为 `true`，并配置玩法开关 `rules`。
 3. 在 `tests/run_tests.gd` 里加一局电脑对电脑测试，然后推送，GitHub Actions 会自动检查并打包。
 

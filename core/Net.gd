@@ -27,6 +27,7 @@ var state = {}
 
 var _logic = null
 var _round = 0
+var _tallied = false
 var _bot_token = 0
 var _enet = null
 var _reject_reason = ""
@@ -222,6 +223,7 @@ func host_room(game_id: String, rules: Dictionary, offline: bool) -> bool:
 		"rules": rules.duplicate(true),
 		"seats": seats,
 		"playing": false,
+		"scores": {},
 	}
 	_broadcast_room()
 	if mode == "host":
@@ -358,8 +360,38 @@ func _broadcast_room() -> void:
 func _broadcast_state() -> void:
 	if _logic == null:
 		return
-	_to_all({"t": "state", "state": _public_state()})
+	_maybe_tally()
+	if _logic.has_method("get_state_for"):
+		# 每个人只收到自己的手牌（斗地主等牌类游戏）
+		if mode == "host":
+			for p in multiplayer.get_peers():
+				_rpc_to_client.rpc_id(p, {"t": "state", "state": _public_state_for(_seat_of_peer(p))})
+		_client_handle({"t": "state", "state": _public_state_for(_seat_of_peer(1))})
+	else:
+		_to_all({"t": "state", "state": _public_state()})
 	_schedule_bot()
+
+
+func _public_state_for(seat: int) -> Dictionary:
+	var s = _logic.get_state_for(seat)
+	s["game_id"] = str(room["game_id"])
+	s["round"] = _round
+	return s
+
+
+func _maybe_tally() -> void:
+	if _logic == null or _tallied or not _logic.is_over():
+		return
+	if not _logic.has_method("round_scores"):
+		return
+	_tallied = true
+	var sc = _logic.round_scores()
+	var tot = room.get("scores", {})
+	for i in sc.size():
+		var k = str(i)
+		tot[k] = int(tot.get(k, 0)) + int(sc[i])
+	room["scores"] = tot
+	_broadcast_room()
 
 
 func _public_state() -> Dictionary:
@@ -480,8 +512,22 @@ func _seat_of_peer(peer: int) -> int:
 
 func _host_start() -> void:
 	var g = Registry.get_game(str(room["game_id"]))
-	var players = []
 	var seats = room["seats"]
+	var filled = 0
+	for i in seats.size():
+		if str(seats[i]["kind"]) != "empty":
+			filled += 1
+	var auto_bots = 0
+	for i in seats.size():
+		if filled >= int(g["min_players"]):
+			break
+		if str(seats[i]["kind"]) == "empty":
+			seats[i] = _bot_seat(i)
+			filled += 1
+			auto_bots += 1
+	if auto_bots > 0:
+		_toast_all("人数不够，已自动补了 %d 个电脑" % auto_bots)
+	var players = []
 	for i in seats.size():
 		if str(seats[i]["kind"]) != "empty":
 			players.append(i)
@@ -491,6 +537,7 @@ func _host_start() -> void:
 	var logic_script = load(str(g["logic"]))
 	_logic = logic_script.new()
 	_round += 1
+	_tallied = false
 	_logic.setup(players, room["rules"], _round)
 	room["playing"] = true
 	_broadcast_room()
