@@ -15,6 +15,8 @@ const CcRules = preload("res://games/checkers/CcRules.gd")
 const CcLogic = preload("res://games/checkers/CheckersLogic.gd")
 const XqRules = preload("res://games/xiangqi/XqRules.gd")
 const XqLogic = preload("res://games/xiangqi/XiangqiLogic.gd")
+const JqBoard = preload("res://games/junqi/JqBoard.gd")
+const JqLogic = preload("res://games/junqi/JunqiLogic.gd")
 
 
 func _init() -> void:
@@ -79,6 +81,12 @@ func _init() -> void:
 	failures += _test_xq_game("easy", 1, 80)
 	failures += _test_xq_game("normal", 2, 16)
 	failures += _test_xq_game("hard", 3, 4)
+	failures += _test_jq_rules()
+	for v in ["dark", "team", "open"]:
+		failures += _test_jq_game("4", v, 1)
+	failures += _test_jq_game("4", "dark", 2)
+	for i in 3:
+		failures += _test_jq_game("2", "dark" if i < 2 else "open", i + 1)
 	if failures == 0:
 		print("ALL TESTS PASSED")
 	else:
@@ -702,4 +710,117 @@ func _test_xq_game(level: String, rn: int, max_plies: int) -> int:
 		if kings != 2:
 			return _fail("xq king captured")
 	print("xq %s: %d plies%s, worst think %dms, total %dms, %s" % [level, lg.plies, " OVER" if lg.is_over() else "", worst, Time.get_ticks_msec() - t0, lg.event])
+	return 0
+
+
+# ---------------------------------------------------------------- 军棋
+
+func _test_jq_rules() -> int:
+	var f = 0
+	var b4 = JqBoard.new(4)
+	var b2 = JqBoard.new(2)
+	f += _expect(b4.count() == 129, "jq four-country board 129 points (got %d)" % b4.count())
+	f += _expect(b2.count() == 60, "jq two-country board 60 points")
+	var camps = 0
+	var hqs = 0
+	for i in b4.count():
+		if b4.camp[i]:
+			camps += 1
+		if b4.hq[i]:
+			hqs += 1
+	f += _expect(camps == 20 and hqs == 8, "jq camps/hq count")
+	f += _expect(b4.rail[b4.node(0, 0, 0)] and not b4.rail[b4.node(0, 5, 0)] and not b4.rail[b4.node(0, 1, 1)], "jq railway marks")
+	for it in 60:
+		for bd in [b4, b2]:
+			var a = randi() % bd.armies
+			var lay = bd.random_layout(a)
+			var cnt = {}
+			for i in lay:
+				var c = int(lay[i])
+				cnt[c] = int(cnt.get(c, 0)) + 1
+				if not bd.slot_ok(int(i), c):
+					return _fail("jq random layout illegal slot")
+			for c in JqBoard.COUNTS:
+				if int(cnt.get(c, 0)) != int(JqBoard.COUNTS[c]):
+					return _fail("jq random layout counts")
+	f += _expect(JqBoard.fight(1, 2) == "att" and JqBoard.fight(5, 5) == "both" and JqBoard.fight(7, 3) == "def", "jq rank fights")
+	f += _expect(JqBoard.fight(10, 1) == "both" and JqBoard.fight(1, 10) == "both", "jq bomb")
+	f += _expect(JqBoard.fight(9, 11) == "att" and JqBoard.fight(1, 11) == "def" and JqBoard.fight(10, 11) == "both", "jq mine")
+	f += _expect(JqBoard.fight(9, 12) == "att", "jq flag capture")
+	var occ = []
+	for i in b4.count():
+		occ.append(-1)
+	var s0 = b4.node(0, 4, 0)
+	occ[s0] = 0
+	var enemy = func(o): return o % 2 == 1
+	var d = b4.destinations(occ, s0, 5, enemy)
+	f += _expect(d.has(b4.node(2, 4, 4)), "jq rail straight across the centre")
+	f += _expect(d.has(b4.node(3, 4, 4)), "jq rail through the arc")
+	f += _expect(not d.has(b4.node(1, 4, 2)), "jq non-engineer can't turn on rail")
+	var de = b4.destinations(occ, s0, 9, enemy)
+	f += _expect(de.has(b4.node(1, 4, 2)), "jq engineer turns on rail")
+	var cp = b4.node(1, 1, 1)
+	var nb = b4.node(1, 0, 1)
+	occ[nb] = 0
+	occ[cp] = 1
+	f += _expect(not b4.destinations(occ, nb, 1, enemy).has(cp), "jq piece in camp can't be attacked")
+	occ[cp] = -1
+	var block = b4.node(0, 2, 0)
+	occ[block] = 0
+	d = b4.destinations(occ, s0, 5, enemy)
+	f += _expect(not d.has(b4.node(0, 1, 0)), "jq rail blocked by own piece")
+	occ = []
+	for i in b2.count():
+		occ.append(-1)
+	var m = b2.node(0, 0, 2)
+	occ[m] = 0
+	f += _expect(b2.destinations(occ, m, 5, enemy).has(b2.node(1, 0, 2)), "jq two-country middle road crossing")
+	f += _expect(not b2.destinations(occ, b2.node(0, 0, 1), 5, enemy).has(b2.node(1, 0, 3)), "jq two-country no crossing at column 1")
+	if f == 0:
+		print("junqi rules ok")
+	return f
+
+
+func _test_jq_game(board: String, view: String, rn: int) -> int:
+	var lg = JqLogic.new()
+	var nn = 4 if board == "4" else 2
+	var seats = []
+	for i in nn:
+		seats.append(i)
+	lg.setup(seats, {"board": board, "view": view}, rn)
+	var t0 = Time.get_ticks_msec()
+	var steps = 0
+	var fights = 0
+	while not lg.is_over() and steps < 5000:
+		var s = lg.current_seat()
+		var a = lg.bot_action(s)
+		if a.is_empty():
+			return _fail("jq bot empty action")
+		var err = lg.apply(s, a)
+		if err != "":
+			return _fail("jq illegal %s: %s" % [str(a), err])
+		if not lg.last_fight.is_empty() and str(a.get("type", "")) == "move":
+			fights += 1
+		steps += 1
+		for p in nn:
+			var pieces = 0
+			var flags = 0
+			for i in lg.occ.size():
+				if int(lg.occ[i]) == p:
+					pieces += 1
+					if int(lg.code[i]) == JqBoard.FLAG:
+						flags += 1
+			if bool(lg.alive[p]) and flags != 1:
+				return _fail("jq alive player %d without flag" % p)
+			if not bool(lg.alive[p]) and pieces != 0:
+				return _fail("jq dead player still has pieces")
+		if s >= 0 and lg.phase == "play":
+			var st = lg.get_state_for(s)
+			for i in lg.occ.size():
+				var o = int(lg.occ[i])
+				if o >= 0 and o != s and view == "dark" and int(st["code"][i]) > 0 and int(lg.code[i]) != JqBoard.FLAG and not lg.over:
+					return _fail("jq dark mode leaked an enemy piece")
+	if not lg.is_over():
+		return _fail("jq never finished")
+	print("jq %sp %s r%d: %d actions, %d plies, %d fights, out order %s, winners %s, %dms ｜ %s" % [board, view, rn, steps, lg.plies, fights, str(lg.out_order), str(lg.winners()), Time.get_ticks_msec() - t0, lg.event.right(60)])
 	return 0

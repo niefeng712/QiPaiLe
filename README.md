@@ -33,7 +33,9 @@
 | 广东推倒胡 | ✅ 已上线 | 136张不能吃，只能自摸/可点炮，抢杠胡，买马 |
 | 大众麻将 | ✅ 已上线 | 136张能吃碰杠，可点炮，常见番型 |
 | 中国象棋 | ✅ 已上线 | 标准规则（蹩马腿、塞象眼、炮架、将帅照面、不能送将），将死/困毙判负，认输，电脑三档难度 |
-| 四国军棋、两国军棋、连连看、跑得快、德州扑克 | 开发中 | |
+| 四国军棋 | ✅ 已上线 | 4人对家一伙，九宫兵站+弧形铁路，暗棋/队友可见/明棋，布阵换位，工兵飞铁路、炸弹、地雷、司令死亮旗 |
+| 两国军棋 | ✅ 已上线 | 2人陆战棋，三处过山界，规则同四国军棋 |
+| 连连看、跑得快、德州扑克 | 开发中 | |
 
 ## 技术结构
 
@@ -46,6 +48,7 @@ scenes/
 games/
   gomoku/          五子棋：GomokuLogic.gd（规则 + 电脑AI）、GomokuView.gd（界面）
   ludo/            飞行棋：LudoLogic.gd、LudoView.gd
+  junqi/           军棋：JqBoard.gd（四国/两国棋盘、铁路、碰子规则）、JunqiLogic.gd、JunqiView.gd
   xiangqi/         中国象棋：XqRules.gd（走法/将军判断/电脑搜索）、XiangqiLogic.gd、XiangqiView.gd
   checkers/        中国跳棋：CcRules.gd（121孔棋盘/走法）、CheckersLogic.gd、CheckersView.gd
   mahjong/         麻将：MjRules.gd（向听数/胡牌判定/电脑出牌）、MahjongLogic.gd（三种玩法）、MahjongView.gd
