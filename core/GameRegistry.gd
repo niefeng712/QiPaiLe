@@ -89,7 +89,7 @@ const GAMES = [
 				"options": [["on", "开启"], ["off", "关闭"]]},
 			{"key": "timer", "label": "出牌倒计时", "default": "20",
 				"options": [["20", "20秒"], ["15", "15秒"], ["30", "30秒"], ["off", "不限时"]]},
-			{"key": "cap", "label": "封顶倍数", "default": "none",
+			{"key": "cap", "label": "封顶倍数", "default": "64",
 				"options": [["none", "不封顶"], ["16", "16倍"], ["32", "32倍"], ["64", "64倍"]]},
 		],
 	},
